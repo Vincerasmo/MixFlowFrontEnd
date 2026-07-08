@@ -1,4 +1,4 @@
-import { AppShell, PageHeader, Panel } from "../components/app-shell";
+import { AppShell, PageHeader, Panel } from "@/components/app-shell";
 
 const RANKINGS = [
   { rank: 1, name: "Sarah Jenkins", wins: 42, losses: 4, streak: 8, rating: 4.5 },

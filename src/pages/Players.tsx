@@ -1,4 +1,4 @@
-import { AppShell, PageHeader, Panel } from "@/components/app-shell";
+import { AppShell, PageHeader, Panel } from "../components/app-shell";
 
 const PLAYERS = [
   { name: "Sarah Jenkins", rating: 4.5, wins: 42, losses: 4, tier: "Pro" },

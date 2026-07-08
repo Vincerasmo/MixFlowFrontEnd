@@ -1,12 +1,12 @@
 import { Plus } from "lucide-react";
-import { AppShell, PageHeader } from "@/components/app-shell";
-import { Button } from "@/components/ui/button";
-import OverviewPanel from "@/components/dashboard/OverviewPanel";
-import MatchesPanel from "@/components/dashboard/MatchesPanel";
-import LeaderboardPanel from "@/components/dashboard/LeaderboardPanel";
-import SessionPanel from "@/components/dashboard/SessionPanel";
-import QueuePanel from "@/components/dashboard/QueuePanel";
-import PlayersPanel from "@/components/dashboard/PlayersPanel";
+import { AppShell, PageHeader } from "../components/app-shell";
+import { Button } from "../components/ui/button";
+import OverviewPanel from "../components/dashboard/OverviewPanel";
+import MatchesPanel from "../components/dashboard/MatchesPanel";
+import LeaderboardPanel from "../components/dashboard/LeaderboardPanel";
+import SessionPanel from "../components/dashboard/SessionPanel";
+import QueuePanel from "../components/dashboard/QueuePanel";
+import PlayersPanel from "../components/dashboard/PlayersPanel";
 
 export default function DashboardPage() {
   return (

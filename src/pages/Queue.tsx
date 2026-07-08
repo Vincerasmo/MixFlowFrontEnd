@@ -1,4 +1,4 @@
-import { AppShell, PageHeader, Panel } from "@/components/app-shell";
+import { AppShell, PageHeader, Panel } from "../components/app-shell";
 
 const QUEUE = [
   { name: "Jordan Miller", waited: "2m", rating: 3.9 },

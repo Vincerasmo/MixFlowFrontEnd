@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import { type ReactNode } from "react";
-import { PickleballIcon } from "@/components/icons/pickleball-icons";
+import { PickleballIcon } from "../components/icons/pickleball-icons";
 
 const NAV: { label: string; to: string }[] = [
   { label: "Dashboard", to: "/dashboard" },

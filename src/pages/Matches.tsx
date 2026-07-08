@@ -1,4 +1,4 @@
-import { AppShell, PageHeader, Panel } from "@/components/app-shell";
+import { AppShell, PageHeader, Panel } from "../components/app-shell";
 
 const LIVE = [
   { court: "Court 01", a: ["Miller", "Ross"], b: ["Chen", "Davis"], scoreA: 11, scoreB: 8, tag: "Game Point" },

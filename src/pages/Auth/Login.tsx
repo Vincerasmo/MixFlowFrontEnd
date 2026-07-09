@@ -1,19 +1,103 @@
 import { Link, useNavigate } from "react-router-dom";
-import { useState, type FormEvent } from "react";
-import { Mail, ArrowRight } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 import { PickleballIcon } from "@/components/icons/pickleball-icons";
+import { loginWithGoogle, loginWithEmail, decodeGoogleCredential } from "@/services/auth";
+
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const buttonRef = useRef<HTMLDivElement>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState("");
+  const [emailLoading, setEmailLoading] = useState(false);
 
-  const handleSubmit = (e: FormEvent) => {
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID) return;
+
+    let cancelled = false;
+
+    const handleCredential = async (credential: string) => {
+      setError(null);
+      setLoading(true);
+      try {
+        const identity = decodeGoogleCredential(credential);
+        await loginWithGoogle(identity);
+        navigate("/dashboard");
+      } catch (err) {
+        const apiErr = err as { status?: number; message?: string };
+        if (apiErr.status === 404) {
+          setError("No account found for this Google account. Try creating one instead.");
+        } else {
+          setError(apiErr.message ?? "Something went wrong. Please try again.");
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const renderGoogleButton = () => {
+      if (cancelled || !window.google || !buttonRef.current) return;
+
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: (response) => {
+          void handleCredential(response.credential);
+        },
+      });
+
+      window.google.accounts.id.renderButton(buttonRef.current, {
+        theme: "outline",
+        size: "large",
+        width: 320,
+        text: "signin_with",
+      });
+    };
+
+    if (window.google) {
+      renderGoogleButton();
+    } else {
+      const interval = setInterval(() => {
+        if (window.google) {
+          clearInterval(interval);
+          renderGoogleButton();
+        }
+      }, 100);
+
+      return () => {
+        cancelled = true;
+        clearInterval(interval);
+      };
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
+
+  const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    navigate("/dashboard");
+    setError(null);
+    setEmailLoading(true);
+    try {
+      await loginWithEmail({ email });
+      navigate("/dashboard");
+    } catch (err) {
+      const apiErr = err as { status?: number; message?: string };
+      if (apiErr.status === 404) {
+        setError("No account found for this email. Try creating one instead.");
+      } else {
+        setError(apiErr.message ?? "Something went wrong. Please try again.");
+      }
+    } finally {
+      setEmailLoading(false);
+    }
   };
 
   return (
@@ -36,31 +120,42 @@ export default function LoginPage() {
             </p>
           </CardHeader>
 
-          <CardContent>
-            <form onSubmit={handleSubmit} className="grid gap-4">
-              <div className="grid gap-2">
+          <CardContent className="flex flex-col gap-4">
+            <form onSubmit={handleEmailLogin} className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1.5">
                 <Label htmlFor="email">Email</Label>
-                <div className="relative">
-                  <Mail className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-zinc-400" />
-                  <Input
-                    id="email"
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="name@club.com"
-                    className="h-11 rounded-xl pl-9"
-                  />
-                </div>
+                <Input
+                  id="email"
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                />
               </div>
-
-              <Button
-                type="submit"
-                className="h-11 w-full rounded-xl bg-ink text-white shadow-lg shadow-ink/20 hover:bg-zinc-800"
-              >
-                Serve it up <ArrowRight className="size-4" />
+              <Button type="submit" disabled={emailLoading} className="w-full">
+                {emailLoading ? "Logging in…" : "Log in"}
               </Button>
             </form>
+
+            <div className="flex items-center gap-3">
+              <Separator className="flex-1" />
+              <span className="text-xs uppercase text-zinc-400">or</span>
+              <Separator className="flex-1" />
+            </div>
+
+            <div className="flex flex-col items-center gap-2">
+              {GOOGLE_CLIENT_ID ? (
+                <div ref={buttonRef} />
+              ) : (
+                <p className="text-center text-sm text-red-500">
+                  Google sign-in isn't configured. Set VITE_GOOGLE_CLIENT_ID in your .env file.
+                </p>
+              )}
+            </div>
+
+            {loading && <p className="text-center text-sm text-zinc-500">Signing you in…</p>}
+            {error && <p className="text-center text-sm text-red-500">{error}</p>}
           </CardContent>
 
           <CardFooter className="justify-center">

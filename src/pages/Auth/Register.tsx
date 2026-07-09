@@ -1,20 +1,104 @@
 import { Link, useNavigate } from "react-router-dom";
-import { useState, type FormEvent } from "react";
-import { Mail, User, ArrowRight } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 import { PickleballIcon } from "@/components/icons/pickleball-icons";
+import { signupWithGoogle, signupWithEmail, decodeGoogleCredential } from "@/services/auth";
+
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
 
 export default function SignUpPage() {
   const navigate = useNavigate();
-  const [name, setName] = useState("");
+  const buttonRef = useRef<HTMLDivElement>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
+  const [emailLoading, setEmailLoading] = useState(false);
 
-  const handleSubmit = (e: FormEvent) => {
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID) return;
+
+    let cancelled = false;
+
+    const handleCredential = async (credential: string) => {
+      setError(null);
+      setLoading(true);
+      try {
+        const identity = decodeGoogleCredential(credential);
+        await signupWithGoogle(identity);
+        navigate("/dashboard");
+      } catch (err) {
+        const apiErr = err as { status?: number; message?: string };
+        if (apiErr.status === 409) {
+          setError("An account already exists for this Google account. Try logging in instead.");
+        } else {
+          setError(apiErr.message ?? "Something went wrong. Please try again.");
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const renderGoogleButton = () => {
+      if (cancelled || !window.google || !buttonRef.current) return;
+
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: (response) => {
+          void handleCredential(response.credential);
+        },
+      });
+
+      window.google.accounts.id.renderButton(buttonRef.current, {
+        theme: "outline",
+        size: "large",
+        width: 320,
+        text: "signup_with",
+      });
+    };
+
+    if (window.google) {
+      renderGoogleButton();
+    } else {
+      const interval = setInterval(() => {
+        if (window.google) {
+          clearInterval(interval);
+          renderGoogleButton();
+        }
+      }, 100);
+
+      return () => {
+        cancelled = true;
+        clearInterval(interval);
+      };
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
+
+  const handleEmailSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    navigate("/dashboard");
+    setError(null);
+    setEmailLoading(true);
+    try {
+      await signupWithEmail({ fullName, email });
+      navigate("/dashboard");
+    } catch (err) {
+      const apiErr = err as { status?: number; message?: string };
+      if (apiErr.status === 409) {
+        setError("An account already exists for this email. Try logging in instead.");
+      } else {
+        setError(apiErr.message ?? "Something went wrong. Please try again.");
+      }
+    } finally {
+      setEmailLoading(false);
+    }
   };
 
   return (
@@ -37,47 +121,53 @@ export default function SignUpPage() {
             </p>
           </CardHeader>
 
-          <CardContent>
-            <form onSubmit={handleSubmit} className="grid gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="name">Full name</Label>
-                <div className="relative">
-                  <User className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-zinc-400" />
-                  <Input
-                    id="name"
-                    type="text"
-                    required
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Jordan Rivera"
-                    className="h-11 rounded-xl pl-9"
-                  />
-                </div>
+          <CardContent className="flex flex-col gap-4">
+            <form onSubmit={handleEmailSignup} className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="fullName">Full name</Label>
+                <Input
+                  id="fullName"
+                  type="text"
+                  required
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  placeholder="Jane Organizer"
+                />
               </div>
-
-              <div className="grid gap-2">
+              <div className="flex flex-col gap-1.5">
                 <Label htmlFor="email">Email</Label>
-                <div className="relative">
-                  <Mail className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-zinc-400" />
-                  <Input
-                    id="email"
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="name@club.com"
-                    className="h-11 rounded-xl pl-9"
-                  />
-                </div>
+                <Input
+                  id="email"
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                />
               </div>
-
-              <Button
-                type="submit"
-                className="h-11 w-full rounded-xl bg-ink text-white shadow-lg shadow-ink/20 hover:bg-zinc-800"
-              >
-                Create account <ArrowRight className="size-4" />
+              <Button type="submit" disabled={emailLoading} className="w-full">
+                {emailLoading ? "Creating account…" : "Create account"}
               </Button>
             </form>
+
+            <div className="flex items-center gap-3">
+              <Separator className="flex-1" />
+              <span className="text-xs uppercase text-zinc-400">or</span>
+              <Separator className="flex-1" />
+            </div>
+
+            <div className="flex flex-col items-center gap-2">
+              {GOOGLE_CLIENT_ID ? (
+                <div ref={buttonRef} />
+              ) : (
+                <p className="text-center text-sm text-red-500">
+                  Google sign-in isn't configured. Set VITE_GOOGLE_CLIENT_ID in your .env file.
+                </p>
+              )}
+            </div>
+
+            {loading && <p className="text-center text-sm text-zinc-500">Creating your account…</p>}
+            {error && <p className="text-center text-sm text-red-500">{error}</p>}
           </CardContent>
 
           <CardFooter className="justify-center">

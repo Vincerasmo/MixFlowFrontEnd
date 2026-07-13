@@ -36,10 +36,8 @@ export interface RecordMatchResultPayload {
   team2Score: number;
 }
 
-// Backend expects List<(int PlayerId, int PartnerId)> — verify on the wire whether
-// System.Text.Json serializes this as {Item1, Item2} or {PlayerId, PartnerId}
-// before relying on this shape.
-export interface SmartMixPair {
+export interface SmartMixPairPayload {
   playerId: number;
   partnerId: number;
 }
+

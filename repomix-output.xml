@@ -52,10 +52,8 @@ src/assets/react.svg
 src/assets/vite.svg
 src/components/app-shell.tsx
 src/components/dashboard/LeaderboardPanel.tsx
-src/components/dashboard/MatchesPanel.tsx
 src/components/dashboard/PanelCard.tsx
 src/components/dashboard/PlayersPanel.tsx
-src/components/dashboard/QueuePanel.tsx
 src/components/dashboard/SessionPanel.tsx
 src/components/icons/pickleball-icons.tsx
 src/components/ui/accordion.tsx
@@ -105,7 +103,6 @@ src/components/ui/toggle-group.tsx
 src/components/ui/toggle.tsx
 src/components/ui/tooltip.tsx
 src/hooks/use-mobile.ts
-src/lib/api.ts
 src/lib/utils.ts
 src/main.tsx
 src/pages/Auth/Login.tsx
@@ -148,571 +145,6 @@ vite.config.ts
 <files>
 This section contains the contents of the repository's files.
 
-<file path="src/lib/api.ts">
-import api from "@/services/api/api";
-
-import.meta.env.VITE_API_URL ?? "https://localhost:7207";
-
-export default api
-</file>
-
-<file path="src/services/api/client.ts">
-import axios, { type AxiosError } from "axios";
-import { getToken, clearSession } from "../auth/session.storage";
-
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? "https://localhost:7207/api";
-
-export const apiClient = axios.create({
-  baseURL: API_BASE_URL,
-  headers: { "Content-Type": "application/json" },
-});
-
-apiClient.interceptors.request.use((config) => {
-  const token = getToken();
-  if (token) {
-    config.headers = config.headers ?? {};
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
-export interface NormalizedApiError {
-  status: number;
-  message: string;
-}
-
-apiClient.interceptors.response.use(
-  (response) => response,
-  (error: AxiosError<{ error?: string; message?: string }>) => {
-    const status = error.response?.status ?? 0;
-    const message =
-      error.response?.data?.error ??
-      error.response?.data?.message ??
-      error.message ??
-      "Something went wrong. Please try again.";
-
-    // Token expired or invalid — drop the local session so the UI can react.
-    if (status === 401) {
-      clearSession();
-    }
-
-    return Promise.reject({ status, message } satisfies NormalizedApiError);
-  }
-);
-</file>
-
-<file path="src/services/auth/auth.service.ts">
-import { apiClient } from "../api/client";
-import { setSession } from "./session.storage";
-import type {
-  AuthResponseDto,
-  EmailLoginPayload,
-  EmailSignupPayload,
-  GoogleLoginPayload,
-  OrganizerDto,
-} from "./auth.types";
-
-export async function loginWithGoogle(payload: GoogleLoginPayload): Promise<AuthResponseDto> {
-  const { data } = await apiClient.post<AuthResponseDto>("/auth/login", payload);
-  setSession(data.token, data.organizer);
-  return data;
-}
-
-export async function signupWithGoogle(payload: GoogleLoginPayload): Promise<AuthResponseDto> {
-  const { data } = await apiClient.post<AuthResponseDto>("/auth/signup", payload);
-  setSession(data.token, data.organizer);
-  return data;
-}
-
-// Dev-only convenience auth — no password, no verification. The backend
-// rejects these routes outside its Development environment.
-export async function loginWithEmail(payload: EmailLoginPayload): Promise<AuthResponseDto> {
-  const { data } = await apiClient.post<AuthResponseDto>("/auth/email-login", payload);
-  setSession(data.token, data.organizer);
-  return data;
-}
-
-export async function signupWithEmail(payload: EmailSignupPayload): Promise<AuthResponseDto> {
-  const { data } = await apiClient.post<AuthResponseDto>("/auth/email-signup", payload);
-  setSession(data.token, data.organizer);
-  return data;
-}
-
-export async function getCurrentOrganizer(): Promise<OrganizerDto> {
-  const { data } = await apiClient.get<OrganizerDto>("/auth/me");
-  return data;
-}
-
-/**
- * Decodes the JWT credential returned by Google Identity Services in the browser.
- * This does NOT verify the signature — only use it against Google's own credential response.
- */
-export function decodeGoogleCredential(credential: string): GoogleLoginPayload {
-  const payloadSegment = credential.split(".")[1];
-  const normalized = payloadSegment.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), "=");
-  const payload = JSON.parse(atob(padded));
-
-  return {
-    userId: payload.sub,
-    email: payload.email,
-    fullName: payload.name,
-  };
-}
-</file>
-
-<file path="src/services/auth/auth.types.ts">
-export interface OrganizerDto {
-  organizerId: number;
-  fullName: string;
-  email: string;
-}
-
-export interface AuthResponseDto {
-  token: string;
-  organizer: OrganizerDto;
-  message: string;
-}
-
-export interface GoogleLoginPayload {
-  userId: string;
-  email: string;
-  fullName?: string;
-}
-
-export interface EmailLoginPayload {
-  email: string;
-}
-
-export interface EmailSignupPayload {
-  fullName: string;
-  email: string;
-}
-</file>
-
-<file path="src/services/auth/index.ts">
-export * from "./auth.types";
-export * from "./auth.service";
-export * from "./session.storage";
-</file>
-
-<file path="src/services/auth/session.storage.ts">
-import type { OrganizerDto } from "./auth.types";
-
-const TOKEN_KEY = "mixflow.token";
-const ORGANIZER_KEY = "mixflow.organizer";
-
-export function getToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
-}
-
-export function setSession(token: string, organizer: OrganizerDto) {
-  localStorage.setItem(TOKEN_KEY, token);
-  localStorage.setItem(ORGANIZER_KEY, JSON.stringify(organizer));
-}
-
-export function getStoredOrganizer(): OrganizerDto | null {
-  const raw = localStorage.getItem(ORGANIZER_KEY);
-  return raw ? (JSON.parse(raw) as OrganizerDto) : null;
-}
-
-export function clearSession() {
-  localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(ORGANIZER_KEY);
-}
-
-export function isAuthenticated(): boolean {
-  return !!getToken();
-}
-</file>
-
-<file path="src/services/index.ts">
-export * as authService from "./auth";
-export * as playersService from "./players";
-export * as sessionsService from "./sessions";
-export * as matchesService from "./matches";
-export * as leaderboardService from "./leaderboard";
-export { apiClient } from "./api/client";
-</file>
-
-<file path="src/services/leaderboard/index.ts">
-export * from "./leaderboard.types";
-export * from "./leaderboard.service";
-</file>
-
-<file path="src/services/leaderboard/leaderboard.service.ts">
-import { apiClient } from "../api/client";
-import type { LeaderboardDto, LeaderboardPlayerDto } from "./leaderboard.types";
-
-export async function getSessionLeaderboard(sessionId: number): Promise<LeaderboardPlayerDto[]> {
-  const { data } = await apiClient.get<LeaderboardPlayerDto[]>(`/leaderboard/session/${sessionId}`);
-  return data;
-}
-
-export async function getOverallLeaderboard(): Promise<LeaderboardPlayerDto[]> {
-  const { data } = await apiClient.get<LeaderboardPlayerDto[]>("/leaderboard/overall");
-  return data;
-}
-
-export async function saveSessionLeaderboardSnapshot(sessionId: number): Promise<void> {
-  await apiClient.post(`/leaderboard/session/${sessionId}/snapshot`);
-}
-
-export async function getSessionLeaderboardHistory(sessionId: number): Promise<LeaderboardDto[]> {
-  const { data } = await apiClient.get<LeaderboardDto[]>(`/leaderboard/session/${sessionId}/history`);
-  return data;
-}
-</file>
-
-<file path="src/services/leaderboard/leaderboard.types.ts">
-export interface LeaderboardPlayerDto {
-  playerId: number;
-  fullName: string;
-  winPercentage: number;
-  gamesPlayed: number;
-  skillLevel: number;
-  wins: number;
-  losses: number;
-  rank: number;
-}
-
-export interface LeaderboardDto {
-  sessionLeaders: LeaderboardPlayerDto[];
-  overallLeaders: LeaderboardPlayerDto[];
-}
-</file>
-
-<file path="src/services/matches/index.ts">
-export * from "./matches.types";
-export * from "./matches.service";
-</file>
-
-<file path="src/services/matches/matches.service.ts">
-import { apiClient } from "../api/client";
-import type {
-  MatchDto,
-  QueueEntryDto,
-  RecordMatchResultPayload,
-  SmartMixPair,
-} from "./matches.types";
-
-export async function enqueuePlayer(sessionId: number, playerId: number): Promise<QueueEntryDto> {
-  const { data } = await apiClient.post<QueueEntryDto>(
-    `/matches/enqueue/${playerId}`,
-    null,
-    { params: { sessionId } }
-  );
-  return data;
-}
-
-export async function getQueue(sessionId: number): Promise<QueueEntryDto[]> {
-  const { data } = await apiClient.get<QueueEntryDto[]>("/matches/queue", {
-    params: { sessionId },
-  });
-  return data;
-}
-
-export async function autoMatch(sessionId: number): Promise<void> {
-  await apiClient.post("/matches/auto-match", null, { params: { sessionId } });
-}
-
-export async function createSmartMix(sessionId: number, pairs: SmartMixPair[]): Promise<MatchDto> {
-  const { data } = await apiClient.post<MatchDto>(`/matches/smartmix/${sessionId}`, pairs);
-  return data;
-}
-
-export async function recordMatchResult(
-  sessionId: number,
-  payload: RecordMatchResultPayload
-): Promise<{ message: string; matchId: number }> {
-  const { data } = await apiClient.post(`/matches/record-result`, payload, {
-    params: { sessionId },
-  });
-  return data;
-}
-
-export async function removeFromQueue(sessionId: number, playerId: number): Promise<void> {
-  await apiClient.delete(`/matches/queue/${playerId}`, { params: { sessionId } });
-}
-
-export async function getCompletedMatches(sessionId: number): Promise<MatchDto[]> {
-  const { data } = await apiClient.get<MatchDto[]>("/matches/completed", {
-    params: { sessionId },
-  });
-  return data;
-}
-
-export async function getActiveMatches(sessionId: number): Promise<MatchDto[]> {
-  const { data } = await apiClient.get<MatchDto[]>("/matches/active", {
-    params: { sessionId },
-  });
-  return data;
-}
-</file>
-
-<file path="src/services/matches/matches.types.ts">
-export interface MatchPlayerDto {
-  playerId: number;
-  fullName: string;
-  teamNumber: number;
-  isWinner?: boolean | null;
-}
-
-export interface MatchDto {
-  matchId: number;
-  sessionId: number;
-  courtNumber?: number | null;
-  rotationMode: string;
-  team1: MatchPlayerDto[];
-  team2: MatchPlayerDto[];
-  team1Score?: number | null;
-  team2Score?: number | null;
-  isCompleted: boolean;
-}
-
-export interface QueueEntryDto {
-  queueId: number;
-  playerId: number;
-  fullName: string;
-  skillCategory: string;
-  skillLevel: number;
-  priorityScore?: number | null;
-  position?: number | null;
-  checkInTime: string;
-}
-
-export interface RecordMatchResultPayload {
-  courtNumber: number;
-  team1PlayerIds: number[];
-  team2PlayerIds: number[];
-  team1Score: number;
-  team2Score: number;
-}
-
-// Backend expects List<(int PlayerId, int PartnerId)> — verify on the wire whether
-// System.Text.Json serializes this as {Item1, Item2} or {PlayerId, PartnerId}
-// before relying on this shape.
-export interface SmartMixPair {
-  playerId: number;
-  partnerId: number;
-}
-</file>
-
-<file path="src/services/players/index.ts">
-export * from "./players.types";
-export * from "./players.service";
-</file>
-
-<file path="src/services/players/players.service.ts">
-import { apiClient } from "../api/client";
-import type { CreatePlayerPayload, PlayerDto, UpdatePlayerPayload } from "./players.types";
-
-export async function getAllPlayers(): Promise<PlayerDto[]> {
-  const { data } = await apiClient.get<PlayerDto[]>("/players");
-  return data;
-}
-
-export async function getPlayerById(id: number): Promise<PlayerDto> {
-  const { data } = await apiClient.get<PlayerDto>(`/players/${id}`);
-  return data;
-}
-
-export async function createPlayer(payload: CreatePlayerPayload): Promise<PlayerDto> {
-  const { data } = await apiClient.post<PlayerDto>("/players", payload);
-  return data;
-}
-
-export async function updatePlayer(id: number, payload: UpdatePlayerPayload): Promise<PlayerDto> {
-  const { data } = await apiClient.put<PlayerDto>(`/players/${id}`, payload);
-  return data;
-}
-
-export async function deletePlayer(id: number): Promise<void> {
-  await apiClient.delete(`/players/${id}`);
-}
-</file>
-
-<file path="src/services/players/players.types.ts">
-export interface PlayerDto {
-  playerId: number;
-  fullName: string;
-  skillCategory: string;
-  skillLevel: number;
-  winPercentage: number;
-  gamesPlayed: number;
-  totalWins: number;
-  totalLosses: number;
-}
-
-export interface CreatePlayerPayload {
-  fullName: string;
-  skillCategory: string;
-}
-
-export interface UpdatePlayerPayload {
-  fullName?: string;
-  skillCategory?: string;
-}
-</file>
-
-<file path="src/services/sessions/index.ts">
-export * from "./sessions.types";
-export * from "./sessions.service";
-</file>
-
-<file path="src/services/sessions/sessions.service.ts">
-import { apiClient } from "../api/client";
-import type {
-  BenchPlayerPayload,
-  CreateSessionPayload,
-  SessionDto,
-  SessionPlayerDto,
-  UpdateSessionPayload,
-} from "./sessions.types";
-
-export async function createSession(payload: CreateSessionPayload): Promise<SessionDto> {
-  const { data } = await apiClient.post<SessionDto>("/sessions", payload);
-  return data;
-}
-
-export async function getSessionById(id: number): Promise<SessionDto> {
-  const { data } = await apiClient.get<SessionDto>(`/sessions/${id}`);
-  return data;
-}
-
-export async function getMySessions(): Promise<SessionDto[]> {
-  const { data } = await apiClient.get<SessionDto[]>("/sessions/mine");
-  return data;
-}
-
-export async function updateSession(id: number, payload: UpdateSessionPayload): Promise<SessionDto> {
-  const { data } = await apiClient.put<SessionDto>(`/sessions/${id}`, payload);
-  return data;
-}
-
-export async function endSession(id: number): Promise<void> {
-  await apiClient.post(`/sessions/${id}/end`);
-}
-
-export async function addPlayerToSession(sessionId: number, playerId: number): Promise<SessionPlayerDto> {
-  const { data } = await apiClient.post<SessionPlayerDto>(`/sessions/${sessionId}/players/${playerId}`);
-  return data;
-}
-
-export async function getSessionPlayers(sessionId: number): Promise<SessionPlayerDto[]> {
-  const { data } = await apiClient.get<SessionPlayerDto[]>(`/sessions/${sessionId}/players`);
-  return data;
-}
-
-export async function benchPlayer(sessionId: number, payload: BenchPlayerPayload): Promise<void> {
-  await apiClient.post(`/sessions/${sessionId}/players/bench`, payload);
-}
-
-export async function returnFromBench(sessionId: number, playerId: number): Promise<void> {
-  await apiClient.post(`/sessions/${sessionId}/players/${playerId}/return`);
-}
-
-export async function getBenchedPlayers(sessionId: number): Promise<SessionPlayerDto[]> {
-  const { data } = await apiClient.get<SessionPlayerDto[]>(`/sessions/${sessionId}/players/benched`);
-  return data;
-}
-
-export async function removePlayerFromSession(sessionId: number, playerId: number): Promise<void> {
-  await apiClient.delete(`/sessions/${sessionId}/players/${playerId}`);
-}
-</file>
-
-<file path="src/services/sessions/sessions.types.ts">
-export interface SessionDto {
-  sessionId: number;
-  sessionName: string;
-  sessionDate: string; // ISO date string
-  startTime: string; // TimeSpan as serialized by the backend, e.g. "18:00:00"
-  endTime: string;
-  numberOfCourts: number;
-  status: string;
-  createdAt: string;
-}
-
-export interface CreateSessionPayload {
-  sessionName: string;
-  sessionDate: string;
-  startTime: string;
-  endTime: string;
-  numberOfCourts: number;
-}
-
-export interface UpdateSessionPayload {
-  sessionName?: string;
-  status?: string;
-}
-
-export interface SessionPlayerDto {
-  sessionPlayerId: number;
-  playerId: number;
-  fullName: string;
-  skillCategory: string;
-  skillLevel: number;
-  status: string;
-  benchReason?: string | null;
-  checkInTime?: string | null;
-  benchedAt?: string | null;
-}
-
-export interface BenchPlayerPayload {
-  playerId: number;
-  reason?: string;
-}
-</file>
-
-<file path="src/types/google.d.ts">
-export {};
-
-declare global {
-  interface Window {
-    google?: {
-      accounts: {
-        id: {
-          initialize: (config: {
-            client_id: string;
-            callback: (response: { credential: string }) => void;
-          }) => void;
-          renderButton: (parent: HTMLElement, options: Record<string, unknown>) => void;
-          prompt: () => void;
-        };
-      };
-    };
-  }
-}
-</file>
-
-<file path=".gitignore">
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-
-node_modules
-dist
-dist-ssr
-*.local
-
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-</file>
-
 <file path="eslint.config.js">
 import js from '@eslint/js'
 import globals from 'globals'
@@ -736,114 +168,6 @@ export default defineConfig([
     },
   },
 ])
-</file>
-
-<file path="index.html">
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" href="/favicon.ico" type="image/x-icon" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MixFlow - Pickleball Stacking Management</title>
-    <meta
-      name="description"
-      content="Run pickleball sessions, queues, matches, and leaderboards with athletic precision."
-    />
-    <meta property="og:title" content="MixFlow - Pickleball Stacking Management" />
-    <meta
-      property="og:description"
-      content="Run pickleball sessions, queues, matches, and leaderboards with athletic precision."
-    />
-    <meta property="og:type" content="website" />
-    <meta name="twitter:card" content="summary_large_image" />
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
-</html>
-</file>
-
-<file path="package.json">
-{
-  "name": "mixflowfrontend",
-  "private": true,
-  "version": "0.0.0",
-  "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "lint": "eslint .",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "@fontsource-variable/geist": "^5.2.5",
-    "@radix-ui/react-accordion": "^1.2.3",
-    "@radix-ui/react-alert-dialog": "^1.1.6",
-    "@radix-ui/react-aspect-ratio": "^1.1.2",
-    "@radix-ui/react-avatar": "^1.1.3",
-    "@radix-ui/react-checkbox": "^1.1.4",
-    "@radix-ui/react-collapsible": "^1.1.3",
-    "@radix-ui/react-context-menu": "^2.2.6",
-    "@radix-ui/react-dialog": "^1.1.6",
-    "@radix-ui/react-dropdown-menu": "^2.1.6",
-    "@radix-ui/react-hover-card": "^1.1.6",
-    "@radix-ui/react-label": "^2.1.2",
-    "@radix-ui/react-menubar": "^1.1.6",
-    "@radix-ui/react-navigation-menu": "^1.2.5",
-    "@radix-ui/react-popover": "^1.1.6",
-    "@radix-ui/react-progress": "^1.1.2",
-    "@radix-ui/react-radio-group": "^1.2.3",
-    "@radix-ui/react-scroll-area": "^1.2.3",
-    "@radix-ui/react-select": "^2.1.6",
-    "@radix-ui/react-separator": "^1.1.2",
-    "@radix-ui/react-slider": "^1.2.3",
-    "@radix-ui/react-slot": "^1.1.2",
-    "@radix-ui/react-switch": "^1.1.3",
-    "@radix-ui/react-tabs": "^1.1.3",
-    "@radix-ui/react-toggle": "^1.1.2",
-    "@radix-ui/react-toggle-group": "^1.1.2",
-    "@radix-ui/react-tooltip": "^1.1.8",
-    "@radix-ui/themes": "^3.3.0",
-    "@tailwindcss/vite": "^4.3.2",
-    "axios": "^1.18.1",
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
-    "cmdk": "^1.1.1",
-    "embla-carousel-react": "^8.5.2",
-    "input-otp": "^1.4.2",
-    "lucide-react": "^1.23.0",
-    "react": "^19.2.7",
-    "react-day-picker": "^9.6.1",
-    "react-dom": "^19.2.7",
-    "react-hook-form": "^7.55.0",
-    "react-resizable-panels": "^4.0.7",
-    "react-router-dom": "^7.18.1",
-    "recharts": "^2.15.1",
-    "sonner": "^2.0.1",
-    "tailwind-merge": "^3.6.0",
-    "tailwindcss": "^4.3.2",
-    "tw-animate-css": "^1.2.4",
-    "vaul": "^1.1.2"
-  },
-  "devDependencies": {
-    "@eslint/js": "^10.0.1",
-    "@types/node": "^24.13.2",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
-    "@types/react-router-dom": "^5.3.3",
-    "@vitejs/plugin-react": "^6.0.3",
-    "eslint": "^10.6.0",
-    "eslint-plugin-react-hooks": "^7.1.1",
-    "eslint-plugin-react-refresh": "^0.5.3",
-    "globals": "^17.7.0",
-    "typescript": "~6.0.2",
-    "typescript-eslint": "^8.62.0",
-    "vite": "^8.1.1"
-  }
-}
 </file>
 
 <file path="public/favicon.svg">
@@ -994,96 +318,89 @@ export default function App() {
 </file>
 
 <file path="src/components/dashboard/LeaderboardPanel.tsx">
-import { Medal } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Medal, Loader2 } from "lucide-react";
 import PanelCard from "./PanelCard";
 import { cn } from "@/lib/utils";
-
-const LEADERS = [
-  { rank: 1, name: "Sarah Jenkins", wins: 42, medal: "bg-ball" },
-  { rank: 2, name: "Marcus Thorne", wins: 38, medal: "bg-zinc-300" },
-  { rank: 3, name: "Elena Rodriguez", wins: 35, medal: "bg-amber-600" },
-];
+import { getOverallLeaderboard } from "@/services/leaderboard";
+import type { LeaderboardPlayerDto } from "@/services/leaderboard";
 
 export default function LeaderboardPanel() {
+  const [leaders, setLeaders] = useState<LeaderboardPlayerDto[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    getOverallLeaderboard()
+      .then((data) => {
+        if (!cancelled) setLeaders(data);
+      })
+      .catch(() => {
+        if (!cancelled) setError("Couldn't load the leaderboard.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const medalTone = (rank: number) =>
+    rank === 1 ? "bg-ball" : rank === 2 ? "bg-zinc-300" : rank === 3 ? "bg-amber-600" : "bg-zinc-100 text-zinc-500";
+
   return (
-    <PanelCard title="Top Performers" accent="bg-ball" to="/leaderboard" className="lg:col-span-4">
-      <div className="space-y-3">
-        {LEADERS.map((p) => (
-          <div key={p.rank} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
-            <div className="flex min-w-0 items-center gap-3">
-              <div className={cn("grid size-7 shrink-0 place-items-center rounded-full text-[11px] font-bold text-zinc-900", p.medal)}>
-                {p.rank === 1 ? <Medal className="size-3.5" /> : p.rank}
-              </div>
-              <span className="truncate text-sm font-semibold">{p.name}</span>
-            </div>
-            <span className="shrink-0 text-xs font-bold tabular-nums text-zinc-500">{p.wins}W</span>
-          </div>
-        ))}
-      </div>
-    </PanelCard>
-  );
-}
-</file>
-
-<file path="src/components/dashboard/MatchesPanel.tsx">
-import { Plus } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import PanelCard from "./PanelCard";
-
-type Match = {
-  court: string;
-  teamA: string;
-  scoreA: number;
-  teamB: string;
-  scoreB: number;
-  tag?: string;
-};
-
-const MATCHES: Match[] = [
-  { court: "Court 01", teamA: "Miller / Ross", scoreA: 11, teamB: "Chen / Davis", scoreB: 8, tag: "Game Point" },
-  { court: "Court 02", teamA: "Nguyen / Patel", scoreA: 7, teamB: "Wong / Rivera", scoreB: 9 },
-];
-
-export default function MatchesPanel() {
-  return (
-    <PanelCard title="Live Matches" accent="bg-red-500 pulse-dot" to="/matches" className="lg:col-span-8">
-      <div className="grid gap-3">
-        {MATCHES.map((m) => (
-          <div
-            key={m.court}
-            className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-zinc-100 bg-zinc-50/60 p-4"
-          >
-            <div className="min-w-0">
-              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">{m.court}</p>
-              <div className="flex flex-wrap items-center gap-3 sm:gap-6">
-                <span className="truncate text-sm font-semibold">{m.teamA}</span>
-                <span className="flex items-center gap-2 rounded-lg bg-white px-2.5 py-1 text-sm font-bold tabular-nums ring-1 ring-zinc-200">
-                  <span>{m.scoreA}</span>
-                  <span className="text-zinc-300">–</span>
-                  <span>{m.scoreB}</span>
-                </span>
-                <span className="truncate text-sm font-semibold">{m.teamB}</span>
-              </div>
-            </div>
-            {m.tag && (
-              <span className="shrink-0 rounded-full bg-brand/20 px-2.5 py-1 text-[10px] font-bold uppercase tracking-tight text-brand-dark">
-                {m.tag}
-              </span>
-            )}
-          </div>
-        ))}
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-dashed border-zinc-200 p-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="grid size-8 shrink-0 place-items-center rounded-full bg-zinc-100 text-zinc-400">
-              <Plus className="size-4" />
-            </div>
-            <p className="truncate text-sm text-zinc-400">Court 3 warming up…</p>
-          </div>
-          <Button size="sm" variant="ghost" className="shrink-0 text-brand-dark hover:text-brand-dark">
-            Start match
-          </Button>
+    <PanelCard title="Top Performers (Weekly)" accent="bg-ball" to="/leaderboard" className="col-span-12">
+      {loading ? (
+        <div className="flex items-center gap-2 text-sm text-zinc-400">
+          <Loader2 className="size-4 animate-spin" /> Loading leaderboard…
         </div>
-      </div>
+      ) : error ? (
+        <p className="text-sm text-red-500">{error}</p>
+      ) : leaders.length === 0 ? (
+        <p className="text-sm text-zinc-400">No results yet — play a few matches to populate the leaderboard.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[520px] border-collapse text-sm">
+            <thead>
+              <tr className="text-left text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+                <th className="w-10 pb-2">#</th>
+                <th className="pb-2">Player</th>
+                <th className="pb-2 text-right">Games</th>
+                <th className="pb-2 text-right">Wins</th>
+                <th className="pb-2 text-right">Losses</th>
+                <th className="pb-2 text-right">Win %</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-950/5">
+              {leaders.slice(0, 5).map((p) => (
+                <tr key={p.playerId}>
+                  <td className="py-3">
+                    <div
+                      className={cn(
+                        "grid size-7 place-items-center rounded-full text-[11px] font-bold text-zinc-900",
+                        medalTone(p.rank),
+                      )}
+                    >
+                      {p.rank <= 3 ? <Medal className="size-3.5" /> : p.rank}
+                    </div>
+                  </td>
+                  <td className="py-3 font-semibold">{p.fullName}</td>
+                  <td className="py-3 text-right tabular-nums text-zinc-500">{p.gamesPlayed}</td>
+                  <td className="py-3 text-right tabular-nums text-zinc-500">{p.wins}</td>
+                  <td className="py-3 text-right tabular-nums text-zinc-500">{p.losses}</td>
+                  <td className="py-3 text-right tabular-nums font-semibold text-brand-dark">
+                    {p.winPercentage.toFixed(0)}%
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </PanelCard>
   );
 }
@@ -1126,107 +443,143 @@ export default function PanelCard({ title, accent, to, className, children }: Pa
 </file>
 
 <file path="src/components/dashboard/PlayersPanel.tsx">
-import { TrendingUp } from "lucide-react";
+import { useEffect, useState } from "react";
+import { TrendingUp, Loader2 } from "lucide-react";
 import PanelCard from "./PanelCard";
-import { cn } from "@/lib/utils";
+import { getAllPlayers } from "@/services/players";
+import type { PlayerDto } from "@/services/players";
 
 export default function PlayersPanel() {
+  const [players, setPlayers] = useState<PlayerDto[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    getAllPlayers()
+      .then((data) => {
+        if (!cancelled) setPlayers(data);
+      })
+      .catch(() => {
+        if (!cancelled) setError("Couldn't load players.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
-    <PanelCard title="Roster" accent="bg-brand-dark" to="/players" className="md:col-span-6 lg:col-span-4">
-      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3">
-        <div className="min-w-0">
-          <p className="text-3xl font-bold tabular-nums">128</p>
-          <p className="text-xs text-zinc-400">Active members</p>
+    <PanelCard title="Roster" accent="bg-brand-dark" to="/players" className="col-span-12 md:col-span-6">
+      {loading ? (
+        <div className="flex items-center gap-2 text-sm text-zinc-400">
+          <Loader2 className="size-4 animate-spin" /> Loading roster…
         </div>
-        <div className="flex items-center gap-1 text-right text-xs font-semibold text-brand-dark">
-          <TrendingUp className="size-3" />
-          +6 this week
-        </div>
-      </div>
-      <div className="mt-5 grid grid-cols-8 gap-1">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <div key={i} className={cn("h-1.5 rounded-full", i < 4 ? "bg-brand" : "bg-zinc-100")} />
-        ))}
-      </div>
-      <p className="mt-3 text-[10px] font-medium uppercase tracking-wider text-zinc-400">
-        50% court capacity utilized
-      </p>
-    </PanelCard>
-  );
-}
-</file>
-
-<file path="src/components/dashboard/QueuePanel.tsx">
-import { Shuffle } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import PanelCard from "./PanelCard";
-import { cn } from "@/lib/utils";
-
-const AVATARS = [
-  { initials: "JD", tone: "bg-brand text-zinc-900" },
-  { initials: "KL", tone: "bg-ball text-zinc-900" },
-  { initials: "AS", tone: "bg-zinc-800 text-white" },
-  { initials: "MR", tone: "bg-court text-white" },
-];
-
-export default function QueuePanel() {
-  return (
-    <PanelCard title="Player Queue" accent="bg-court" to="/queue" className="md:col-span-6 lg:col-span-4">
-      <div className="flex items-center -space-x-2 py-1">
-        {AVATARS.map((a) => (
-          <div
-            key={a.initials}
-            className={cn(
-              "grid size-9 place-items-center rounded-full text-[11px] font-bold ring-2 ring-white",
-              a.tone,
+      ) : error ? (
+        <p className="text-sm text-red-500">{error}</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3">
+            <div className="min-w-0">
+              <p className="text-3xl font-bold tabular-nums">{players.length}</p>
+              <p className="text-xs text-zinc-400">Active members</p>
+            </div>
+            {players.length > 0 && (
+              <div className="flex items-center gap-1 text-right text-xs font-semibold text-brand-dark">
+                <TrendingUp className="size-3" />
+                {players.filter((p) => p.gamesPlayed > 0).length} with games played
+              </div>
             )}
-          >
-            {a.initials}
           </div>
-        ))}
-        <div className="grid size-9 place-items-center rounded-full bg-zinc-100 text-[10px] font-bold ring-2 ring-white">
-          +2
-        </div>
-      </div>
-      <p className="mt-4 text-xs text-zinc-500">
-        Next in line: <span className="font-semibold text-zinc-900">Jordan & Kelly</span>
-      </p>
-      <Button className="mt-4 w-full bg-ink text-white hover:bg-zinc-800">
-        <Shuffle className="size-3.5" /> Auto-Mix Pair
-      </Button>
+
+          {players.length > 0 ? (
+            <div className="mt-4 divide-y divide-zinc-950/5">
+              {players.slice(0, 4).map((p) => (
+                <div key={p.playerId} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-2.5">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold">{p.fullName}</p>
+                    <p className="text-xs text-zinc-400">{p.skillCategory}</p>
+                  </div>
+                  <span className="shrink-0 text-xs font-bold tabular-nums text-zinc-500">
+                    {p.winPercentage.toFixed(0)}% W
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-4 text-sm text-zinc-400">No players added yet.</p>
+          )}
+        </>
+      )}
     </PanelCard>
   );
 }
 </file>
 
 <file path="src/components/dashboard/SessionPanel.tsx">
-import { CalendarDays } from "lucide-react";
+import { useEffect, useState } from "react";
+import { CalendarDays, Loader2 } from "lucide-react";
 import PanelCard from "./PanelCard";
-
-const SESSIONS = [
-  { name: "Morning Open Play", date: "Oct 24", players: 12 },
-  { name: "Advanced Round Robin", date: "Oct 22", players: 8 },
-];
+import { getMySessions } from "@/services/sessions";
+import type { SessionDto } from "@/services/sessions";
 
 export default function SessionPanel() {
+  const [sessions, setSessions] = useState<SessionDto[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    getMySessions()
+      .then((data) => {
+        if (!cancelled) setSessions(data);
+      })
+      .catch(() => {
+        if (!cancelled) setError("Couldn't load sessions.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
-    <PanelCard title="Recent Sessions" accent="bg-brand" to="/sessions" className="md:col-span-6 lg:col-span-4">
-      <div className="divide-y divide-zinc-950/5">
-        {SESSIONS.map((s) => (
-          <div key={s.name} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-3">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold">{s.name}</p>
-              <p className="flex items-center gap-1 text-xs text-zinc-400">
-                <CalendarDays className="size-3" />
-                {s.date} • {s.players} Players
-              </p>
+    <PanelCard title="Recent Sessions" accent="bg-brand" to="/sessions" className="col-span-12 md:col-span-6">
+      {loading ? (
+        <div className="flex items-center gap-2 text-sm text-zinc-400">
+          <Loader2 className="size-4 animate-spin" /> Loading sessions…
+        </div>
+      ) : error ? (
+        <p className="text-sm text-red-500">{error}</p>
+      ) : sessions.length === 0 ? (
+        <p className="text-sm text-zinc-400">No sessions yet. Start one to get going.</p>
+      ) : (
+        <div className="divide-y divide-zinc-950/5">
+          {sessions.slice(0, 4).map((s) => (
+            <div key={s.sessionId} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold">{s.sessionName}</p>
+                <p className="flex items-center gap-1 text-xs text-zinc-400">
+                  <CalendarDays className="size-3" />
+                  {new Date(s.sessionDate).toLocaleDateString(undefined, { month: "short", day: "numeric" })} •{" "}
+                  {s.numberOfCourts} courts
+                </p>
+              </div>
+              <span className="shrink-0 rounded-md bg-brand-soft px-2 py-0.5 text-[10px] font-bold uppercase text-brand-dark">
+                {s.status}
+              </span>
             </div>
-            <span className="shrink-0 rounded-md bg-brand-soft px-2 py-0.5 text-[10px] font-bold text-brand-dark">
-              LIVE
-            </span>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </PanelCard>
   );
 }
@@ -5705,17 +5058,197 @@ export default function NotFoundPage() {
 </file>
 
 <file path="src/pages/Sessions.tsx">
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { Plus, Loader2, Users, X, Trophy, Medal } from "lucide-react";
 import { AppShell, PageHeader, Panel } from "@/components/app-shell";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  createSession,
+  getMySessions,
+  endSession,
+  addPlayerToSession,
+  getSessionPlayers,
+  removePlayerFromSession,
+} from "@/services/sessions";
+import { getAllPlayers } from "@/services/players";
+import { getSessionLeaderboard } from "@/services/leaderboard";
+import type { CreateSessionPayload, SessionDto, SessionPlayerDto } from "@/services/sessions";
+import type { PlayerDto } from "@/services/players";
+import type { LeaderboardPlayerDto } from "@/services/leaderboard";
 
-const SESSIONS = [
-  { name: "Morning Open Play", date: "Oct 24, 2024", players: 12, matches: 18, status: "live" as const },
-  { name: "Advanced Round Robin", date: "Oct 22, 2024", players: 8, matches: 24, status: "done" as const },
-  { name: "Weeknight Ladder", date: "Oct 19, 2024", players: 16, matches: 32, status: "done" as const },
-  { name: "Beginner Clinic", date: "Oct 17, 2024", players: 10, matches: 12, status: "done" as const },
-  { name: "Sunday Doubles", date: "Oct 13, 2024", players: 20, matches: 40, status: "done" as const },
-];
+// Same gold / silver / bronze badge treatment as the dashboard's Top Performers panel.
+const medalTone = (rank: number) =>
+  rank === 1 ? "bg-ball" : rank === 2 ? "bg-zinc-300" : rank === 3 ? "bg-amber-600" : "bg-zinc-100 text-zinc-500";
 
+const emptyForm = {
+  sessionName: "",
+  sessionDate: "",
+  startTime: "",
+  endTime: "",
+  numberOfCourts: 4,
+};
+
+// Lock/unlock pairing now lives on the Queue page — that's where the organizer is
+// actually looking when deciding who should play together, and it needs to react to
+// who's currently queued/in-match, which this dialog doesn't track.
 export default function SessionsPage() {
+  const [sessions, setSessions] = useState<SessionDto[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [form, setForm] = useState(emptyForm);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+
+  const [endingId, setEndingId] = useState<number | null>(null);
+
+  // Roster management
+  const [rosterSession, setRosterSession] = useState<SessionDto | null>(null);
+  const [rosterPlayers, setRosterPlayers] = useState<SessionPlayerDto[]>([]);
+  const [allPlayers, setAllPlayers] = useState<PlayerDto[]>([]);
+  const [leaders, setLeaders] = useState<LeaderboardPlayerDto[]>([]);
+  const [rosterLoading, setRosterLoading] = useState(false);
+  const [rosterError, setRosterError] = useState<string | null>(null);
+  const [pendingPlayerId, setPendingPlayerId] = useState<number | null>(null);
+  const [addSearch, setAddSearch] = useState("");
+
+  const loadSessions = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await getMySessions();
+      setSessions(data);
+    } catch {
+      setError("Couldn't load sessions.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadSessions();
+  }, []);
+
+  const handleCreate = async (e: FormEvent) => {
+    e.preventDefault();
+    setFormError(null);
+    setCreating(true);
+
+    try {
+      const payload: CreateSessionPayload = {
+        sessionName: form.sessionName,
+        sessionDate: form.sessionDate,
+        startTime: `${form.startTime}:00`,
+        endTime: `${form.endTime}:00`,
+        numberOfCourts: form.numberOfCourts,
+      };
+
+      await createSession(payload);
+      setDialogOpen(false);
+      setForm(emptyForm);
+      await loadSessions();
+    } catch (err) {
+      const apiErr = err as { message?: string };
+      setFormError(apiErr.message ?? "Couldn't create the session. Please try again.");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleEndSession = async (id: number) => {
+    setEndingId(id);
+    try {
+      await endSession(id);
+      await loadSessions();
+    } catch {
+      setError("Couldn't end that session. Please try again.");
+    } finally {
+      setEndingId(null);
+    }
+  };
+
+  const openRoster = async (session: SessionDto) => {
+    setRosterSession(session);
+    setRosterError(null);
+    setAddSearch("");
+    setRosterLoading(true);
+    try {
+      const [players, roster, sessionLeaders] = await Promise.all([
+        allPlayers.length > 0 ? Promise.resolve(allPlayers) : getAllPlayers(),
+        getSessionPlayers(session.sessionId),
+        getSessionLeaderboard(session.sessionId),
+      ]);
+      setAllPlayers(players);
+      setRosterPlayers(roster);
+      setLeaders(sessionLeaders);
+    } catch {
+      setRosterError("Couldn't load the roster for this session.");
+    } finally {
+      setRosterLoading(false);
+    }
+  };
+
+  const closeRoster = () => {
+    setRosterSession(null);
+    setRosterPlayers([]);
+    setRosterError(null);
+  };
+
+  const availablePlayers = useMemo(() => {
+    const rosterIds = new Set(rosterPlayers.map((rp) => rp.playerId));
+    const pool = allPlayers.filter((p) => !rosterIds.has(p.playerId));
+    const q = addSearch.trim().toLowerCase();
+    if (!q) return pool;
+    return pool.filter((p) => p.fullName.toLowerCase().includes(q));
+  }, [allPlayers, rosterPlayers, addSearch]);
+
+  const handleAddToRoster = async (playerId: number) => {
+    if (!rosterSession) return;
+    setPendingPlayerId(playerId);
+    setRosterError(null);
+    try {
+      const added = await addPlayerToSession(rosterSession.sessionId, playerId);
+      setRosterPlayers((prev) => [...prev, added]);
+    } catch {
+      setRosterError("Couldn't add that player. They may already be in this session.");
+    } finally {
+      setPendingPlayerId(null);
+    }
+  };
+
+  const handleRemoveFromRoster = async (playerId: number) => {
+    if (!rosterSession) return;
+    setPendingPlayerId(playerId);
+    setRosterError(null);
+    try {
+      await removePlayerFromSession(rosterSession.sessionId, playerId);
+      setRosterPlayers((prev) => prev.filter((rp) => rp.playerId !== playerId));
+    } catch {
+      setRosterError("Couldn't remove that player. Please try again.");
+    } finally {
+      setPendingPlayerId(null);
+    }
+  };
+
+  const formatDate = (iso: string) => {
+    const d = new Date(iso);
+    return {
+      month: d.toLocaleDateString(undefined, { month: "short" }),
+      day: d.getDate(),
+    };
+  };
+
   return (
     <AppShell>
       <PageHeader
@@ -5723,51 +5256,876 @@ export default function SessionsPage() {
         title="Court sessions"
         subtitle="Schedule, run, and archive your play sessions."
         action={
-          <button className="shrink-0 rounded-full bg-brand px-4 py-2 text-sm font-semibold text-zinc-900 ring-1 ring-black/10 shadow-lg shadow-brand/30 transition-transform hover:bg-brand-dark hover:text-white active:scale-[0.97]">
-            + New Session
-          </button>
+          <Button
+            onClick={() => setDialogOpen(true)}
+            className="shrink-0 rounded-full bg-brand text-zinc-900 shadow-lg shadow-brand/30 hover:bg-brand-dark hover:text-white"
+          >
+            <Plus className="size-4" /> New Session
+          </Button>
         }
       />
-      <div className="grid gap-4 sm:gap-6">
-        {SESSIONS.map((s) => (
-          <Panel key={s.name} className="transition-transform hover:scale-[1.005]">
-            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4">
-              <div className="flex min-w-0 items-center gap-4">
-                <div className="grid size-14 shrink-0 place-items-center rounded-2xl bg-brand-soft text-brand-dark">
-                  <div className="text-center">
-                    <p className="text-[9px] font-bold uppercase leading-none">{s.date.split(" ")[0]}</p>
-                    <p className="text-lg font-bold leading-none">{s.date.split(" ")[1].replace(",", "")}</p>
+
+      {loading ? (
+        <div className="flex items-center gap-2 text-sm text-zinc-400">
+          <Loader2 className="size-4 animate-spin" /> Loading sessions…
+        </div>
+      ) : error ? (
+        <p className="text-sm text-red-500">{error}</p>
+      ) : sessions.length === 0 ? (
+        <Panel className="text-center text-sm text-zinc-400">
+          No sessions yet. Create one to get started.
+        </Panel>
+      ) : (
+        <div className="grid gap-4 sm:gap-6">
+          {sessions.map((s) => {
+            const { month, day } = formatDate(s.sessionDate);
+            const isLive = s.status === "Active";
+
+            return (
+              <Panel key={s.sessionId} className="transition-transform hover:scale-[1.005]">
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4">
+                  <div className="flex min-w-0 items-center gap-4">
+                    <div className="grid size-14 shrink-0 place-items-center rounded-2xl bg-brand-soft text-brand-dark">
+                      <div className="text-center">
+                        <p className="text-[9px] font-bold uppercase leading-none">{month}</p>
+                        <p className="text-lg font-bold leading-none">{day}</p>
+                      </div>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h3 className="truncate text-base font-semibold">{s.sessionName}</h3>
+                        {isLive ? (
+                          <span className="pulse-dot rounded-full bg-red-500 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
+                            Live
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-zinc-500">
+                            Completed
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-0.5 text-xs text-zinc-500">
+                        {s.startTime.slice(0, 5)}–{s.endTime.slice(0, 5)} • {s.numberOfCourts} courts • {s.totalMatchesPlayed} game
+                        {s.totalMatchesPlayed === 1 ? "" : "s"} played
+                      </p>
+                    </div>
                   </div>
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h3 className="truncate text-base font-semibold">{s.name}</h3>
-                    {s.status === "live" && (
-                      <span className="pulse-dot rounded-full bg-red-500 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
-                        Live
-                      </span>
+                  <div className="hidden shrink-0 items-center gap-3 sm:flex">
+                    <Button size="sm" variant="outline" onClick={() => openRoster(s)} className="rounded-full">
+                      <Users className="size-3.5" /> Manage Players
+                    </Button>
+                    {isLive && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={endingId === s.sessionId}
+                        onClick={() => handleEndSession(s.sessionId)}
+                        className="rounded-full"
+                      >
+                        {endingId === s.sessionId ? "Ending…" : "End Session"}
+                      </Button>
                     )}
                   </div>
-                  <p className="mt-0.5 text-xs text-zinc-500">
-                    {s.players} players • {s.matches} matches played
-                  </p>
                 </div>
+              </Panel>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Create session dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Start a new session</DialogTitle>
+            <DialogDescription>Set the date, time, and courts. You can adjust the roster after.</DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleCreate} className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="sessionName">Session name</Label>
+              <Input
+                id="sessionName"
+                required
+                value={form.sessionName}
+                onChange={(e) => setForm((f) => ({ ...f, sessionName: e.target.value }))}
+                placeholder="Morning Open Play"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="sessionDate">Date</Label>
+              <Input
+                id="sessionDate"
+                type="date"
+                required
+                value={form.sessionDate}
+                onChange={(e) => setForm((f) => ({ ...f, sessionDate: e.target.value }))}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="startTime">Start time</Label>
+                <Input
+                  id="startTime"
+                  type="time"
+                  required
+                  value={form.startTime}
+                  onChange={(e) => setForm((f) => ({ ...f, startTime: e.target.value }))}
+                />
               </div>
-              <div className="hidden shrink-0 items-center gap-6 sm:flex">
-                <div className="text-right">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">Matches</p>
-                  <p className="text-lg font-bold tabular-nums">{s.matches}</p>
-                </div>
-                <button className="rounded-full bg-ink px-4 py-1.5 text-xs font-semibold text-white transition-transform hover:bg-zinc-800 active:scale-[0.97]">
-                  Open
-                </button>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="endTime">End time</Label>
+                <Input
+                  id="endTime"
+                  type="time"
+                  required
+                  value={form.endTime}
+                  onChange={(e) => setForm((f) => ({ ...f, endTime: e.target.value }))}
+                />
               </div>
             </div>
-          </Panel>
-        ))}
-      </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="numberOfCourts">Number of courts</Label>
+              <Input
+                id="numberOfCourts"
+                type="number"
+                min={1}
+                required
+                value={form.numberOfCourts}
+                onChange={(e) => setForm((f) => ({ ...f, numberOfCourts: Number(e.target.value) }))}
+              />
+            </div>
+
+            {formError && <p className="text-sm text-red-500">{formError}</p>}
+
+            <DialogFooter>
+              <Button type="submit" disabled={creating} className="w-full">
+                {creating ? "Creating…" : "Create session"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Manage players dialog */}
+      <Dialog open={!!rosterSession} onOpenChange={(open) => !open && closeRoster()}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Players — {rosterSession?.sessionName}</DialogTitle>
+            <DialogDescription>
+              Add or remove players from this session. Pair-locking is on the Queue page.
+            </DialogDescription>
+          </DialogHeader>
+
+          {rosterLoading ? (
+            <div className="flex items-center gap-2 py-6 text-sm text-zinc-400">
+              <Loader2 className="size-4 animate-spin" /> Loading roster…
+            </div>
+          ) : (
+            <div className="flex flex-col gap-5">
+              {rosterError && <p className="text-sm text-red-500">{rosterError}</p>}
+
+              {/* Mini leaderboard for this session — top 3 only */}
+              <div>
+                <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                  <Trophy className="size-3.5" /> Leading this session
+                </p>
+                {leaders.length === 0 ? (
+                  <p className="text-sm text-zinc-400">No results yet — play a few matches to populate this.</p>
+                ) : (
+                  <div className="flex flex-col gap-1">
+                    {leaders.slice(0, 3).map((l) => (
+                      <div
+                        key={l.playerId}
+                        className="flex items-center justify-between rounded-lg bg-zinc-50 px-3 py-1.5 text-sm"
+                      >
+                        <span className="flex items-center gap-2">
+                          <span
+                            className={`grid size-6 place-items-center rounded-full text-[10px] font-bold text-zinc-900 ${medalTone(l.rank)}`}
+                          >
+                            {l.rank <= 3 ? <Medal className="size-3.5" /> : l.rank}
+                          </span>
+                          {l.fullName}
+                        </span>
+                        <span className="tabular-nums text-zinc-500">
+                          {l.wins}-{l.losses} • {l.winPercentage.toFixed(0)}%
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                  In this session ({rosterPlayers.length})
+                </p>
+                {rosterPlayers.length === 0 ? (
+                  <p className="text-sm text-zinc-400">No players added yet.</p>
+                ) : (
+                  <div className="flex flex-col gap-1.5">
+                    {rosterPlayers.map((rp) => (
+                      <div key={rp.playerId} className="flex items-center justify-between rounded-xl bg-zinc-50 px-3 py-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">{rp.fullName}</p>
+                          <p className="text-xs text-zinc-400">
+                            {rp.skillCategory} • {rp.gamesPlayedInSession} game
+                            {rp.gamesPlayedInSession === 1 ? "" : "s"} played
+                            {rp.lockedPartnerName ? ` • 🔒 paired with ${rp.lockedPartnerName}` : ""}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => handleRemoveFromRoster(rp.playerId)}
+                          disabled={pendingPlayerId === rp.playerId}
+                          className="grid size-7 shrink-0 place-items-center rounded-full text-zinc-400 hover:bg-red-50 hover:text-red-500 disabled:opacity-50"
+                          aria-label={`Remove ${rp.fullName}`}
+                        >
+                          <X className="size-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                    Add from roster ({availablePlayers.length})
+                  </p>
+                </div>
+                <Input
+                  value={addSearch}
+                  onChange={(e) => setAddSearch(e.target.value)}
+                  placeholder="Search players to add…"
+                  className="mb-2"
+                />
+                {availablePlayers.length === 0 ? (
+                  <p className="text-sm text-zinc-400">
+                    {allPlayers.length === 0
+                      ? "You don't have any players yet."
+                      : addSearch
+                        ? "No players match your search."
+                        : "Everyone is already in this session."}
+                  </p>
+                ) : (
+                  <div className="flex max-h-56 flex-col gap-1.5 overflow-y-auto">
+                    {availablePlayers.map((p) => (
+                      <div
+                        key={p.playerId}
+                        className="flex items-center justify-between rounded-xl px-3 py-2 ring-1 ring-zinc-100"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">{p.fullName}</p>
+                          <p className="text-xs text-zinc-400">{p.skillCategory}</p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={pendingPlayerId === p.playerId}
+                          onClick={() => handleAddToRoster(p.playerId)}
+                          className="rounded-full"
+                        >
+                          {pendingPlayerId === p.playerId ? "Adding…" : "Add"}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
+}
+</file>
+
+<file path="src/services/api/client.ts">
+import axios, { type AxiosError } from "axios";
+import { getToken, clearSession } from "../auth/session.storage";
+
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? "https://localhost:7207/api";
+
+export const apiClient = axios.create({
+  baseURL: API_BASE_URL,
+  headers: { "Content-Type": "application/json" },
+});
+
+apiClient.interceptors.request.use((config) => {
+  const token = getToken();
+  if (token) {
+    config.headers = config.headers ?? {};
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+export interface NormalizedApiError {
+  status: number;
+  message: string;
+}
+
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error: AxiosError<{ error?: string; message?: string }>) => {
+    const status = error.response?.status ?? 0;
+    const message =
+      error.response?.data?.error ??
+      error.response?.data?.message ??
+      error.message ??
+      "Something went wrong. Please try again.";
+
+    // Token expired or invalid — drop the local session so the UI can react.
+    if (status === 401) {
+      clearSession();
+    }
+
+    return Promise.reject({ status, message } satisfies NormalizedApiError);
+  }
+);
+</file>
+
+<file path="src/services/auth/auth.service.ts">
+import { apiClient } from "../api/client";
+import { setSession } from "./session.storage";
+import type {
+  AuthResponseDto,
+  EmailLoginPayload,
+  EmailSignupPayload,
+  GoogleLoginPayload,
+  OrganizerDto,
+} from "./auth.types";
+
+export async function loginWithGoogle(payload: GoogleLoginPayload): Promise<AuthResponseDto> {
+  const { data } = await apiClient.post<AuthResponseDto>("/auth/login", payload);
+  setSession(data.token, data.organizer);
+  return data;
+}
+
+export async function signupWithGoogle(payload: GoogleLoginPayload): Promise<AuthResponseDto> {
+  const { data } = await apiClient.post<AuthResponseDto>("/auth/signup", payload);
+  setSession(data.token, data.organizer);
+  return data;
+}
+
+// Convenience auth by email only — no password, no verification. Works in every
+// environment now that the Development-only gate has been removed on the backend.
+export async function loginWithEmail(payload: EmailLoginPayload): Promise<AuthResponseDto> {
+  const { data } = await apiClient.post<AuthResponseDto>("/auth/email-login", payload);
+  setSession(data.token, data.organizer);
+  return data;
+}
+
+export async function signupWithEmail(payload: EmailSignupPayload): Promise<AuthResponseDto> {
+  const { data } = await apiClient.post<AuthResponseDto>("/auth/email-signup", payload);
+  setSession(data.token, data.organizer);
+  return data;
+}
+
+export async function getCurrentOrganizer(): Promise<OrganizerDto> {
+  const { data } = await apiClient.get<OrganizerDto>("/auth/me");
+  return data;
+}
+
+/**
+ * Decodes the JWT credential returned by Google Identity Services in the browser.
+ * This does NOT verify the signature — only use it against Google's own credential response.
+ */
+export function decodeGoogleCredential(credential: string): GoogleLoginPayload {
+  const payloadSegment = credential.split(".")[1];
+  const normalized = payloadSegment.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), "=");
+  const payload = JSON.parse(atob(padded));
+
+  return {
+    userId: payload.sub,
+    email: payload.email,
+    fullName: payload.name,
+  };
+}
+</file>
+
+<file path="src/services/auth/auth.types.ts">
+export interface OrganizerDto {
+  organizerId: number;
+  fullName: string;
+  email: string;
+}
+
+export interface AuthResponseDto {
+  token: string;
+  organizer: OrganizerDto;
+  message: string;
+}
+
+export interface GoogleLoginPayload {
+  userId: string;
+  email: string;
+  fullName?: string;
+}
+
+export interface EmailLoginPayload {
+  email: string;
+}
+
+export interface EmailSignupPayload {
+  fullName: string;
+  email: string;
+}
+</file>
+
+<file path="src/services/auth/index.ts">
+export * from "./auth.types";
+export * from "./auth.service";
+export * from "./session.storage";
+</file>
+
+<file path="src/services/auth/session.storage.ts">
+import type { OrganizerDto } from "./auth.types";
+
+const TOKEN_KEY = "mixflow.token";
+const ORGANIZER_KEY = "mixflow.organizer";
+
+export function getToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setSession(token: string, organizer: OrganizerDto) {
+  localStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem(ORGANIZER_KEY, JSON.stringify(organizer));
+}
+
+export function getStoredOrganizer(): OrganizerDto | null {
+  const raw = localStorage.getItem(ORGANIZER_KEY);
+  return raw ? (JSON.parse(raw) as OrganizerDto) : null;
+}
+
+export function clearSession() {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(ORGANIZER_KEY);
+}
+
+export function isAuthenticated(): boolean {
+  return !!getToken();
+}
+</file>
+
+<file path="src/services/index.ts">
+export * as authService from "./auth";
+export * as playersService from "./players";
+export * as sessionsService from "./sessions";
+export * as matchesService from "./matches";
+export * as leaderboardService from "./leaderboard";
+export { apiClient } from "./api/client";
+</file>
+
+<file path="src/services/leaderboard/index.ts">
+export * from "./leaderboard.types";
+export * from "./leaderboard.service";
+</file>
+
+<file path="src/services/leaderboard/leaderboard.service.ts">
+import { apiClient } from "../api/client";
+import type { ActiveSessionLeaderboardDto, LeaderboardDto, LeaderboardPlayerDto } from "./leaderboard.types";
+
+export async function getSessionLeaderboard(sessionId: number): Promise<LeaderboardPlayerDto[]> {
+  const { data } = await apiClient.get<LeaderboardPlayerDto[]>(`/leaderboard/session/${sessionId}`);
+  return data;
+}
+
+// Leaderboard for whichever session is currently active for this organizer.
+// Returns null (rather than throwing) on a 404 so callers can just check
+// `result === null` for "no active session right now".
+export async function getActiveSessionLeaderboard(): Promise<ActiveSessionLeaderboardDto | null> {
+  try {
+    const { data } = await apiClient.get<ActiveSessionLeaderboardDto>("/leaderboard/session/active");
+    return data;
+  } catch (err) {
+    const status = (err as { status?: number })?.status;
+    if (status === 404) return null;
+    throw err;
+  }
+}
+
+export async function getOverallLeaderboard(): Promise<LeaderboardPlayerDto[]> {
+  const { data } = await apiClient.get<LeaderboardPlayerDto[]>("/leaderboard/overall");
+  return data;
+}
+
+export async function saveSessionLeaderboardSnapshot(sessionId: number): Promise<void> {
+  await apiClient.post(`/leaderboard/session/${sessionId}/snapshot`);
+}
+
+export async function getSessionLeaderboardHistory(sessionId: number): Promise<LeaderboardDto[]> {
+  const { data } = await apiClient.get<LeaderboardDto[]>(`/leaderboard/session/${sessionId}/history`);
+  return data;
+}
+</file>
+
+<file path="src/services/leaderboard/leaderboard.types.ts">
+export interface LeaderboardPlayerDto {
+  playerId: number;
+  fullName: string;
+  winPercentage: number;
+  gamesPlayed: number;
+  skillLevel: number;
+  wins: number;
+  losses: number;
+  rank: number;
+}
+
+export interface LeaderboardDto {
+  sessionLeaders: LeaderboardPlayerDto[];
+  overallLeaders: LeaderboardPlayerDto[];
+}
+
+// Response shape of GET /leaderboard/session/active
+export interface ActiveSessionLeaderboardDto {
+  sessionId: number;
+  sessionName: string;
+  leaderboard: LeaderboardPlayerDto[];
+}
+</file>
+
+<file path="src/services/matches/index.ts">
+export * from "./matches.types";
+export * from "./matches.service";
+</file>
+
+<file path="src/services/matches/matches.service.ts">
+import { apiClient } from "../api/client";
+import type {
+  MatchDto,
+  QueueEntryDto,
+  RecordMatchResultPayload,
+  SmartMixPairPayload,
+} from "./matches.types";
+import type { BenchPlayerPayload, SessionPlayerDto } from "../sessions/sessions.types";
+
+export async function enqueuePlayer(sessionId: number, playerId: number): Promise<QueueEntryDto> {
+  const { data } = await apiClient.post<QueueEntryDto>(
+    `/matches/enqueue/${playerId}`,
+    null,
+    { params: { sessionId } }
+  );
+  return data;
+}
+
+export async function getQueue(sessionId: number): Promise<QueueEntryDto[]> {
+  const { data } = await apiClient.get<QueueEntryDto[]>("/matches/queue", {
+    params: { sessionId },
+  });
+  return data;
+}
+
+export async function autoMatch(sessionId: number): Promise<void> {
+  await apiClient.post("/matches/auto-match", null, { params: { sessionId } });
+}
+
+
+export async function recordMatchResult(
+  sessionId: number,
+  payload: RecordMatchResultPayload
+): Promise<{ message: string; matchId: number }> {
+  const { data } = await apiClient.post(`/matches/record-result`, payload, {
+    params: { sessionId },
+  });
+  return data;
+}
+
+export async function removeFromQueue(sessionId: number, playerId: number): Promise<void> {
+  await apiClient.delete(`/matches/queue/${playerId}`, { params: { sessionId } });
+}
+
+export async function getCompletedMatches(sessionId: number): Promise<MatchDto[]> {
+  const { data } = await apiClient.get<MatchDto[]>("/matches/completed", {
+    params: { sessionId },
+  });
+  return data;
+}
+
+export async function getActiveMatches(sessionId: number): Promise<MatchDto[]> {
+  const { data } = await apiClient.get<MatchDto[]>("/matches/active", {
+    params: { sessionId },
+  });
+  return data;
+}
+
+export async function benchPlayer(sessionId: number, payload: BenchPlayerPayload): Promise<void> {
+  await apiClient.post("/matches/bench", payload, { params: { sessionId } });
+}
+
+export async function returnToQueue(sessionId: number, playerId: number): Promise<QueueEntryDto> {
+  const { data } = await apiClient.post<QueueEntryDto>(
+    `/matches/bench/${playerId}/return-to-queue`,
+    null,
+    { params: { sessionId } }
+  );
+  return data;
+}
+
+export async function getBenchedPlayers(sessionId: number): Promise<SessionPlayerDto[]> {
+  const { data } = await apiClient.get<SessionPlayerDto[]>("/matches/benched", {
+    params: { sessionId },
+  });
+  return data;
+}
+
+export async function smartMixCourt(sessionId: number, courtNumber: number): Promise<MatchDto> {
+  const { data } = await apiClient.post<MatchDto>(
+    `/matches/court/${courtNumber}/smart-mix`,
+    null,
+    { params: { sessionId } }
+  );
+  return data;
+}
+
+export async function manualMixCourt(
+  sessionId: number,
+  courtNumber: number,
+  pairs: SmartMixPairPayload[]
+): Promise<MatchDto> {
+  const { data } = await apiClient.post<MatchDto>(
+    `/matches/court/${courtNumber}/manual-mix`,
+    { pairs },
+    { params: { sessionId } }
+  );
+  return data;
+}
+</file>
+
+<file path="src/services/matches/matches.types.ts">
+export interface MatchPlayerDto {
+  playerId: number;
+  fullName: string;
+  teamNumber: number;
+  isWinner?: boolean | null;
+}
+
+export interface MatchDto {
+  matchId: number;
+  sessionId: number;
+  courtNumber?: number | null;
+  rotationMode: string;
+  team1: MatchPlayerDto[];
+  team2: MatchPlayerDto[];
+  team1Score?: number | null;
+  team2Score?: number | null;
+  isCompleted: boolean;
+}
+
+export interface QueueEntryDto {
+  queueId: number;
+  playerId: number;
+  fullName: string;
+  skillCategory: string;
+  skillLevel: number;
+  priorityScore?: number | null;
+  position?: number | null;
+  checkInTime: string;
+}
+
+export interface RecordMatchResultPayload {
+  courtNumber: number;
+  team1PlayerIds: number[];
+  team2PlayerIds: number[];
+  team1Score: number;
+  team2Score: number;
+}
+
+export interface SmartMixPairPayload {
+  playerId: number;
+  partnerId: number;
+}
+</file>
+
+<file path="src/services/players/index.ts">
+export * from "./players.types";
+export * from "./players.service";
+</file>
+
+<file path="src/services/players/players.service.ts">
+import { apiClient } from "../api/client";
+import type { CreatePlayerPayload, PlayerDto, UpdatePlayerPayload } from "./players.types";
+
+export async function getAllPlayers(): Promise<PlayerDto[]> {
+  const { data } = await apiClient.get<PlayerDto[]>("/players");
+  return data;
+}
+
+export async function getPlayerById(id: number): Promise<PlayerDto> {
+  const { data } = await apiClient.get<PlayerDto>(`/players/${id}`);
+  return data;
+}
+
+export async function createPlayer(payload: CreatePlayerPayload): Promise<PlayerDto> {
+  const { data } = await apiClient.post<PlayerDto>("/players", payload);
+  return data;
+}
+
+export async function updatePlayer(id: number, payload: UpdatePlayerPayload): Promise<PlayerDto> {
+  const { data } = await apiClient.put<PlayerDto>(`/players/${id}`, payload);
+  return data;
+}
+
+export async function deletePlayer(id: number): Promise<void> {
+  await apiClient.delete(`/players/${id}`);
+}
+</file>
+
+<file path="src/services/players/players.types.ts">
+export interface PlayerDto {
+  playerId: number;
+  fullName: string;
+  skillCategory: string;
+  skillLevel: number;
+  winPercentage: number;
+  gamesPlayed: number;
+  totalWins: number;
+  totalLosses: number;
+}
+
+export interface CreatePlayerPayload {
+  fullName: string;
+  skillCategory: string;
+}
+
+export interface UpdatePlayerPayload {
+  fullName?: string;
+  skillCategory?: string;
+}
+</file>
+
+<file path="src/services/sessions/index.ts">
+export * from "./sessions.types";
+export * from "./sessions.service";
+</file>
+
+<file path="src/services/sessions/sessions.service.ts">
+import { apiClient } from "../api/client";
+import type {
+  CreateSessionPayload,
+  SessionDto,
+  SessionPlayerDto,
+  UpdateSessionPayload,
+} from "./sessions.types";
+
+export async function createSession(payload: CreateSessionPayload): Promise<SessionDto> {
+  const { data } = await apiClient.post<SessionDto>("/sessions", payload);
+  return data;
+}
+
+export async function getSessionById(id: number): Promise<SessionDto> {
+  const { data } = await apiClient.get<SessionDto>(`/sessions/${id}`);
+  return data;
+}
+
+export async function getMySessions(): Promise<SessionDto[]> {
+  const { data } = await apiClient.get<SessionDto[]>("/sessions/mine");
+  return data;
+}
+
+// The organizer's current in-progress session, if any. Returns null (rather than
+// throwing) on a 404 so callers can just check `session === null` for "nothing active".
+export async function getActiveSession(): Promise<SessionDto | null> {
+  try {
+    const { data } = await apiClient.get<SessionDto>("/sessions/active");
+    return data;
+  } catch (err) {
+    const status = (err as { status?: number })?.status;
+    if (status === 404) return null;
+    throw err;
+  }
+}
+
+export async function updateSession(id: number, payload: UpdateSessionPayload): Promise<SessionDto> {
+  const { data } = await apiClient.put<SessionDto>(`/sessions/${id}`, payload);
+  return data;
+}
+
+export async function endSession(id: number): Promise<void> {
+  await apiClient.post(`/sessions/${id}/end`);
+}
+
+export async function addPlayerToSession(sessionId: number, playerId: number): Promise<SessionPlayerDto> {
+  const { data } = await apiClient.post<SessionPlayerDto>(`/sessions/${sessionId}/players/${playerId}`);
+  return data;
+}
+
+export async function getSessionPlayers(sessionId: number): Promise<SessionPlayerDto[]> {
+  const { data } = await apiClient.get<SessionPlayerDto[]>(`/sessions/${sessionId}/players`);
+  return data;
+}
+
+export async function removePlayerFromSession(sessionId: number, playerId: number): Promise<void> {
+  await apiClient.delete(`/sessions/${sessionId}/players/${playerId}`);
+}
+
+// Lock two players in this session as a fixed doubles pair — auto-mix will always
+// place them on the same team together.
+export async function lockPair(sessionId: number, playerId: number, partnerId: number): Promise<void> {
+  await apiClient.post(`/sessions/${sessionId}/players/${playerId}/lock/${partnerId}`);
+}
+
+// Unlock a player from their current pair (clears both sides).
+export async function unlockPair(sessionId: number, playerId: number): Promise<void> {
+  await apiClient.post(`/sessions/${sessionId}/players/${playerId}/unlock`);
+}
+</file>
+
+<file path="src/services/sessions/sessions.types.ts">
+export interface SessionDto {
+  sessionId: number;
+  sessionName: string;
+  sessionDate: string;
+  startTime: string;
+  endTime: string;
+  numberOfCourts: number;
+  status: string;
+  createdAt: string;
+  totalMatchesPlayed: number;
+}
+
+export interface CreateSessionPayload {
+  sessionName: string;
+  sessionDate: string;
+  startTime: string;
+  endTime: string;
+  numberOfCourts: number;
+}
+
+export interface UpdateSessionPayload {
+  sessionName?: string;
+  status?: string;
+}
+
+export interface SessionPlayerDto {
+  sessionPlayerId: number;
+  playerId: number;
+  fullName: string;
+  skillCategory: string;
+  skillLevel: number;
+  status: string;
+  benchReason?: string | null;
+  checkInTime?: string | null;
+  benchedAt?: string | null;
+
+  // How many matches this player has played within THIS session (not lifetime).
+  gamesPlayedInSession: number;
+
+  // Lock-pair info, if this player has locked in with a partner for this session.
+  lockedPartnerId?: number | null;
+  lockedPartnerName?: string | null;
+}
+
+export interface BenchPlayerPayload {
+  playerId: number;
+  reason?: string;
 }
 </file>
 
@@ -5967,6 +6325,27 @@ export default function SessionsPage() {
 }
 </file>
 
+<file path="src/types/google.d.ts">
+export {};
+
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (config: {
+            client_id: string;
+            callback: (response: { credential: string }) => void;
+          }) => void;
+          renderButton: (parent: HTMLElement, options: Record<string, unknown>) => void;
+          prompt: () => void;
+        };
+      };
+    };
+  }
+}
+</file>
+
 <file path="tsconfig.json">
 {
   "files": [],
@@ -6014,6 +6393,144 @@ export default defineConfig({
     },
   },
 })
+</file>
+
+<file path=".gitignore">
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+.env
+.env.local
+</file>
+
+<file path="index.html">
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="/favicon.ico" type="image/x-icon" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MixFlow - Pickleball Stacking Management</title>
+    <meta
+      name="description"
+      content="Run pickleball sessions, queues, matches, and leaderboards with athletic precision."
+    />
+    <meta property="og:title" content="MixFlow - Pickleball Stacking Management" />
+    <meta
+      property="og:description"
+      content="Run pickleball sessions, queues, matches, and leaderboards with athletic precision."
+    />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+</file>
+
+<file path="package.json">
+{
+  "name": "mixflowfrontend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@fontsource-variable/geist": "^5.2.5",
+    "@radix-ui/react-accordion": "^1.2.3",
+    "@radix-ui/react-alert-dialog": "^1.1.6",
+    "@radix-ui/react-aspect-ratio": "^1.1.2",
+    "@radix-ui/react-avatar": "^1.1.3",
+    "@radix-ui/react-checkbox": "^1.1.4",
+    "@radix-ui/react-collapsible": "^1.1.3",
+    "@radix-ui/react-context-menu": "^2.2.6",
+    "@radix-ui/react-dialog": "^1.1.6",
+    "@radix-ui/react-dropdown-menu": "^2.1.6",
+    "@radix-ui/react-hover-card": "^1.1.6",
+    "@radix-ui/react-label": "^2.1.2",
+    "@radix-ui/react-menubar": "^1.1.6",
+    "@radix-ui/react-navigation-menu": "^1.2.5",
+    "@radix-ui/react-popover": "^1.1.6",
+    "@radix-ui/react-progress": "^1.1.2",
+    "@radix-ui/react-radio-group": "^1.2.3",
+    "@radix-ui/react-scroll-area": "^1.2.3",
+    "@radix-ui/react-select": "^2.1.6",
+    "@radix-ui/react-separator": "^1.1.2",
+    "@radix-ui/react-slider": "^1.2.3",
+    "@radix-ui/react-slot": "^1.1.2",
+    "@radix-ui/react-switch": "^1.1.3",
+    "@radix-ui/react-tabs": "^1.1.3",
+    "@radix-ui/react-toggle": "^1.1.2",
+    "@radix-ui/react-toggle-group": "^1.1.2",
+    "@radix-ui/react-tooltip": "^1.1.8",
+    "@radix-ui/themes": "^3.3.0",
+    "@tailwindcss/vite": "^4.3.2",
+    "axios": "^1.18.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
+    "embla-carousel-react": "^8.5.2",
+    "input-otp": "^1.4.2",
+    "lucide-react": "^1.23.0",
+    "react": "^19.2.7",
+    "react-day-picker": "^9.6.1",
+    "react-dom": "^19.2.7",
+    "react-hook-form": "^7.55.0",
+    "react-resizable-panels": "^4.0.7",
+    "react-router-dom": "^7.18.1",
+    "recharts": "^2.15.1",
+    "sonner": "^2.0.1",
+    "tailwind-merge": "^3.6.0",
+    "tailwindcss": "^4.3.2",
+    "tw-animate-css": "^1.2.4",
+    "vaul": "^1.1.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.13.2",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@types/react-router-dom": "^5.3.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "eslint": "^10.6.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.3",
+    "globals": "^17.7.0",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.62.0",
+    "vite": "^8.1.1"
+  }
+}
 </file>
 
 <file path="src/components/app-shell.tsx">
@@ -6067,7 +6584,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <button className="hidden items-center gap-1.5 rounded-full bg-brand px-3 py-1.5 text-xs font-semibold text-zinc-900 ring-1 ring-black/10 transition-transform hover:bg-brand-dark hover:text-white active:scale-[0.97] sm:inline-flex">
               + New Session
             </button>
-            <div className="grid size-9 shrink-0 place-items-center rounded-full bg-gradient-to-br from-ball to-brand text-[11px] font-bold text-zinc-900 ring-2 ring-white shadow-sm">
+            <div className="grid size-9 shrink-0 place-items-center rounded-full bg-linear-to-br from-ball to-brand text-[11px] font-bold text-zinc-900 ring-2 ring-white shadow-sm">
               VC
             </div>
           </div>
@@ -6396,7 +6913,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-brand-soft via-zinc-50 to-white font-sans text-zinc-900">
+    <div className="relative min-h-screen overflow-hidden bg-linear-to-br from-brand-soft via-zinc-50 to-white font-sans text-zinc-900">
       <PickleballIcon className="absolute -left-16 -top-16 size-72 opacity-30" />
       <PickleballIcon className="absolute -right-24 top-1/2 size-96 opacity-20" />
       <PickleballIcon className="absolute bottom-[-4rem] left-1/3 size-56 opacity-25" />
@@ -6573,7 +7090,7 @@ export default function SignUpPage() {
   };
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-brand-soft via-zinc-50 to-white font-sans text-zinc-900">
+    <div className="relative min-h-screen overflow-hidden bg-linear-to-br from-brand-soft via-zinc-50 to-white font-sans text-zinc-900">
       <PickleballIcon className="absolute -left-16 -top-16 size-72 opacity-30" />
       <PickleballIcon className="absolute -right-24 top-1/2 size-96 opacity-20" />
       <PickleballIcon className="absolute bottom-[-4rem] left-1/3 size-56 opacity-25" />
@@ -6656,71 +7173,140 @@ export default function SignUpPage() {
 }
 </file>
 
-<file path="src/pages/Dashboard.tsx">
-import { Plus } from "lucide-react";
-import { AppShell, PageHeader } from "@/components/app-shell";
-import { Button } from "@/components/ui/button";
-import MatchesPanel from "@/components/dashboard/MatchesPanel";
-import LeaderboardPanel from "@/components/dashboard/LeaderboardPanel";
-import SessionPanel from "@/components/dashboard/SessionPanel";
-import QueuePanel from "@/components/dashboard/QueuePanel";
-import PlayersPanel from "@/components/dashboard/PlayersPanel";
+<file path="src/pages/Leaderboard.tsx">
+import { useEffect, useState } from "react";
+import { Loader2 } from "lucide-react";
+import { AppShell, PageHeader, Panel } from "@/components/app-shell";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { getActiveSessionLeaderboard, getOverallLeaderboard } from "@/services/leaderboard";
+import type { LeaderboardPlayerDto } from "@/services/leaderboard";
 
-export default function DashboardPage() {
+function initials(name: string) {
+  return name.split(" ").map((n) => n[0]).join("");
+}
+
+export default function LeaderboardPage() {
+  const [sessionName, setSessionName] = useState<string | null>(null);
+  const [sessionRankings, setSessionRankings] = useState<LeaderboardPlayerDto[]>([]);
+  const [overallRankings, setOverallRankings] = useState<LeaderboardPlayerDto[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    Promise.all([getActiveSessionLeaderboard(), getOverallLeaderboard()])
+      .then(([activeSession, overall]) => {
+        if (cancelled) return;
+        if (activeSession !== null) {
+          setSessionName(activeSession.sessionName);
+          setSessionRankings(activeSession.leaderboard);
+        }
+        setOverallRankings(overall);
+      })
+      .catch(() => {
+        if (!cancelled) setError("Couldn't load the leaderboard.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <AppShell>
+        <div className="flex items-center gap-2 text-sm text-zinc-400">
+          <Loader2 className="size-4 animate-spin" /> Loading leaderboard…
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (error) {
+    return (
+      <AppShell>
+        <PageHeader eyebrow="Standings" title="Leaderboard" />
+        <Panel className="text-center text-sm text-red-500">{error}</Panel>
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell>
-      <PageHeader
-        eyebrow="Pickleball Stacking Management"
-        title="Time to Stack, {Organizer Name}!"
-        subtitle="Loading up on pickleball, positive vibes, and a solid stack."
-        action={
-          <Button className="hidden shrink-0 rounded-full bg-brand text-zinc-900 shadow-lg shadow-brand/30 hover:bg-brand-dark hover:text-white sm:inline-flex">
-            <Plus className="size-4" /> Start a Session
-          </Button>
-        }
-      />
+      <PageHeader eyebrow="Standings" title="Leaderboard" subtitle="Updated in real time as matches finish." />
 
-      <div className="grid grid-cols-12 gap-4 sm:gap-6">
-        <MatchesPanel />
-        <LeaderboardPanel />
-        <SessionPanel />
-        <QueuePanel />
-        <PlayersPanel />
-      </div>
+      <Tabs defaultValue="session">
+        <TabsList>
+          <TabsTrigger value="session">Session</TabsTrigger>
+          <TabsTrigger value="overall">Overall</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="session">
+          <LeaderboardView
+            rankings={sessionRankings}
+            subtitle={sessionName ? sessionName : undefined}
+            emptyMessage={
+              sessionName === null
+                ? "No active session right now. Start a session to see live standings here."
+                : "No results yet for this session — the leaderboard fills in as matches are recorded."
+            }
+          />
+        </TabsContent>
+
+        <TabsContent value="overall">
+          <LeaderboardView
+            rankings={overallRankings}
+            subtitle="All-time, across every session"
+            emptyMessage="No players have recorded matches yet."
+          />
+        </TabsContent>
+      </Tabs>
     </AppShell>
   );
 }
-</file>
 
-<file path="src/pages/Leaderboard.tsx">
-import { AppShell, PageHeader, Panel } from "@/components/app-shell";
+function LeaderboardView({
+  rankings,
+  subtitle,
+  emptyMessage,
+}: {
+  rankings: LeaderboardPlayerDto[];
+  subtitle?: string;
+  emptyMessage: string;
+}) {
+  if (rankings.length === 0) {
+    return (
+      <Panel className="mt-4 text-center text-sm text-zinc-400">
+        {emptyMessage}
+      </Panel>
+    );
+  }
 
-const RANKINGS = [
-  { rank: 1, name: "Sarah Jenkins", wins: 42, losses: 4, streak: 8, rating: 4.5 },
-  { rank: 2, name: "Marcus Thorne", wins: 38, losses: 7, streak: 3, rating: 4.3 },
-  { rank: 3, name: "Elena Rodriguez", wins: 35, losses: 9, streak: 5, rating: 4.1 },
-  { rank: 4, name: "Jordan Miller", wins: 28, losses: 12, streak: 2, rating: 3.9 },
-  { rank: 5, name: "Kelly Chen", wins: 26, losses: 14, streak: 4, rating: 3.8 },
-  { rank: 6, name: "Aiden Ross", wins: 19, losses: 15, streak: 1, rating: 3.5 },
-  { rank: 7, name: "Priya Davis", wins: 17, losses: 16, streak: 0, rating: 3.4 },
-  { rank: 8, name: "Tommy Nguyen", wins: 12, losses: 20, streak: 0, rating: 3.0 },
-];
+  const [first, second, third, ...rest] = rankings;
 
-export default function LeaderboardPage() {
-  const [first, second, third, ...rest] = RANKINGS;
   return (
-    <AppShell>
-      <PageHeader
-        eyebrow="Season standings"
-        title="Leaderboard"
-        subtitle="Fall 2024 • Updated in real time as matches finish."
-      />
+    <div className="mt-4">
+      {subtitle && <p className="mb-4 text-sm text-zinc-500">{subtitle}</p>}
 
-      <div className="mb-6 grid grid-cols-3 gap-3 sm:gap-6">
-        <Podium player={second} height="h-32 sm:h-40" gradient="from-zinc-300 to-zinc-400" medal="🥈" />
-        <Podium player={first} height="h-40 sm:h-56" gradient="from-ball to-ball-deep" medal="🥇" featured />
-        <Podium player={third} height="h-28 sm:h-36" gradient="from-amber-600 to-amber-800" medal="🥉" />
-      </div>
+      {first && (
+        <div className="mb-6 grid grid-cols-3 gap-3 sm:gap-6">
+          {second ? (
+            <Podium player={second} height="h-32 sm:h-40" gradient="from-zinc-300 to-zinc-400" medal="🥈" />
+          ) : (
+            <div />
+          )}
+          <Podium player={first} height="h-40 sm:h-56" gradient="from-ball to-ball-deep" medal="🥇" featured />
+          {third ? (
+            <Podium player={third} height="h-28 sm:h-36" gradient="from-amber-600 to-amber-800" medal="🥉" />
+          ) : (
+            <div />
+          )}
+        </div>
+      )}
 
       <Panel>
         <h2 className="mb-4 text-sm font-semibold">Full rankings</h2>
@@ -6731,42 +7317,44 @@ export default function LeaderboardPage() {
             <span className="text-right">Rating</span>
             <span className="text-right">Wins</span>
             <span className="text-right">Losses</span>
-            <span className="text-right">Streak</span>
+            <span className="text-right">Win %</span>
           </div>
           {rest.map((p) => (
             <div
-              key={p.rank}
+              key={p.playerId}
               className="grid grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-3 py-3 sm:grid-cols-[3rem_minmax(0,1fr)_4rem_4rem_4rem_4rem]"
             >
               <span className="text-sm font-bold text-zinc-400 tabular-nums">#{p.rank}</span>
               <div className="flex min-w-0 items-center gap-3">
-                <div className="grid size-8 shrink-0 place-items-center rounded-full bg-gradient-to-br from-ball to-brand text-[10px] font-bold text-zinc-900">
-                  {p.name.split(" ").map((n) => n[0]).join("")}
+                <div className="grid size-8 shrink-0 place-items-center rounded-full bg-linear-to-br from-ball to-brand text-[10px] font-bold text-zinc-900">
+                  {initials(p.fullName)}
                 </div>
-                <span className="truncate text-sm font-semibold">{p.name}</span>
+                <span className="truncate text-sm font-semibold">{p.fullName}</span>
               </div>
-              <span className="hidden text-right text-sm font-bold tabular-nums sm:inline">{p.rating.toFixed(1)}</span>
-              <span className="text-right text-sm font-bold tabular-nums text-brand-dark sm:inline">{p.wins}</span>
-              <span className="hidden text-right text-sm font-medium tabular-nums text-zinc-500 sm:inline">{p.losses}</span>
-              <span className="hidden text-right text-xs font-bold sm:inline">
-                {p.streak > 0 ? (
-                  <span className="rounded-full bg-brand-soft px-2 py-0.5 text-brand-dark">🔥 {p.streak}</span>
-                ) : (
-                  <span className="text-zinc-300">—</span>
-                )}
+              <span className="hidden text-right text-sm font-bold tabular-nums sm:inline">
+                {Number(p.skillLevel).toFixed(1)}
+              </span>
+              <span className="text-right text-sm font-bold tabular-nums text-brand-dark sm:inline">
+                {p.wins}
+              </span>
+              <span className="hidden text-right text-sm font-medium tabular-nums text-zinc-500 sm:inline">
+                {p.losses}
+              </span>
+              <span className="hidden text-right text-xs font-bold tabular-nums sm:inline">
+                {Number(p.winPercentage).toFixed(0)}%
               </span>
             </div>
           ))}
         </div>
       </Panel>
-    </AppShell>
+    </div>
   );
 }
 
 function Podium({
   player, height, gradient, medal, featured,
 }: {
-  player: typeof RANKINGS[number];
+  player: LeaderboardPlayerDto;
   height: string;
   gradient: string;
   medal: string;
@@ -6775,12 +7363,12 @@ function Podium({
   return (
     <div className="flex flex-col items-center">
       <div className={`mb-2 text-2xl sm:text-3xl ${featured ? "ball-bounce" : ""}`}>{medal}</div>
-      <div className="grid size-14 place-items-center rounded-full bg-gradient-to-br from-ball to-brand text-sm font-bold text-zinc-900 ring-4 ring-white shadow-lg sm:size-16">
-        {player.name.split(" ").map((n) => n[0]).join("")}
+      <div className="grid size-14 place-items-center rounded-full bg-linear-to-br from-ball to-brand text-sm font-bold text-zinc-900 ring-4 ring-white shadow-lg sm:size-16">
+        {initials(player.fullName)}
       </div>
-      <p className="mt-2 text-center text-xs font-bold sm:text-sm">{player.name}</p>
+      <p className="mt-2 text-center text-xs font-bold sm:text-sm">{player.fullName}</p>
       <p className="text-[10px] text-zinc-500">{player.wins} wins</p>
-      <div className={`mt-3 w-full rounded-t-2xl bg-gradient-to-b ${gradient} ${height} flex items-start justify-center pt-3 shadow-inner`}>
+      <div className={`mt-3 w-full rounded-t-2xl bg-linear-to-b ${gradient} ${height} flex items-start justify-center pt-3 shadow-inner`}>
         <span className="text-2xl font-black text-white/90 sm:text-4xl">#{player.rank}</span>
       </div>
     </div>
@@ -6789,161 +7377,965 @@ function Podium({
 </file>
 
 <file path="src/pages/Matches.tsx">
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { Loader2, Shuffle, Swords } from "lucide-react";
 import { AppShell, PageHeader, Panel } from "@/components/app-shell";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogClose,
+} from "@/components/ui/dialog";
+import { getActiveSession, getSessionPlayers } from "@/services/sessions";
+import {
+  getActiveMatches,
+  getCompletedMatches,
+  recordMatchResult,
+  smartMixCourt,
+  manualMixCourt,
+  getQueue,
+} from "@/services/matches";
+import type { SessionDto, SessionPlayerDto } from "@/services/sessions";
+import type { MatchDto, QueueEntryDto } from "@/services/matches";
 
-const LIVE = [
-  { court: "Court 01", a: ["Miller", "Ross"], b: ["Chen", "Davis"], scoreA: 11, scoreB: 8, tag: "Game Point" },
-  { court: "Court 02", a: ["Nguyen", "Patel"], b: ["Wong", "Rivera"], scoreA: 7, scoreB: 9 },
-  { court: "Court 03", a: ["Jenkins", "Thorne"], b: ["Rodriguez", "Kim"], scoreA: 4, scoreB: 5 },
-];
+// The card body now always renders as a pickleball court (green surround, blue court,
+// light-blue kitchen, black net line) so multiple courts stay distinguishable by their
+// "Court N" badge color rather than the whole card changing theme.
+const COURT_ACCENTS = ["bg-amber-500", "bg-indigo-500", "bg-rose-500", "bg-emerald-500", "bg-sky-500", "bg-fuchsia-500"];
 
-const COMPLETED = [
-  { a: "Miller / Ross", b: "Jenkins / Thorne", score: "11-9" },
-  { a: "Chen / Davis", b: "Nguyen / Patel", score: "11-6" },
-  { a: "Rodriguez / Kim", b: "Wong / Rivera", score: "11-4" },
-];
+function courtAccent(courtNumber: number) {
+  return COURT_ACCENTS[(courtNumber - 1) % COURT_ACCENTS.length];
+}
+
+// Fixed pixel width per court card, so the wrapper width below can force exact
+// row-counts (1 centered / 2 side-by-side / 3 side-by-side / 2x2 for 4+).
+const CARD_WIDTH = 340;
+const GAP = 24;
+
+function wrapperMaxWidth(courtCount: number) {
+  if (courtCount <= 1) return CARD_WIDTH;
+  if (courtCount === 2) return CARD_WIDTH * 2 + GAP;
+  if (courtCount === 3) return CARD_WIDTH * 3 + GAP * 2;
+  return CARD_WIDTH * 2 + GAP; // 4+: force exactly 2 per row
+}
+
+// 🐛 FIX: the "Next Up" preview used to be a naive `queue.slice(i*4, i*4+4)` — it had no
+// idea two players were locked together, so a locked pair could get split across two
+// different preview groups even though the backend would correctly keep them together
+// once Smart Mix actually ran. This mirrors the backend's PickFourForNextCourt exactly:
+// a locked pair is one atomic 2-slot unit, taken in full or skipped, never split — so
+// what the organizer sees in the preview always matches what Smart Mix will produce.
+function buildCourtPreviews(
+  queue: QueueEntryDto[],
+  lockedPartnerByPlayerId: Map<number, number>,
+  courtCount: number,
+): QueueEntryDto[][] {
+  const remaining = [...queue];
+  const groups: QueueEntryDto[][] = [];
+
+  for (let c = 0; c < courtCount; c++) {
+    const selected: QueueEntryDto[] = [];
+    const consumed = new Set<number>();
+
+    for (const entry of remaining) {
+      if (selected.length >= 4) break;
+      if (consumed.has(entry.playerId)) continue;
+
+      const partnerId = lockedPartnerByPlayerId.get(entry.playerId);
+      const partnerEntry = partnerId != null ? remaining.find((q) => q.playerId === partnerId) : undefined;
+      const partnerAvailable = partnerEntry != null && !consumed.has(partnerEntry.playerId);
+
+      if (partnerId != null && partnerAvailable) {
+        if (selected.length + 2 <= 4) {
+          selected.push(entry, partnerEntry!);
+          consumed.add(entry.playerId);
+          consumed.add(partnerEntry!.playerId);
+        }
+        continue;
+      }
+
+      selected.push(entry);
+      consumed.add(entry.playerId);
+    }
+
+    for (const s of selected) {
+      const idx = remaining.findIndex((q) => q.playerId === s.playerId);
+      if (idx !== -1) remaining.splice(idx, 1);
+    }
+
+    groups.push(selected);
+  }
+
+  return groups;
+}
 
 export default function MatchesPage() {
+  const navigate = useNavigate();
+  const [session, setSession] = useState<SessionDto | null>(null);
+  const [sessionLoading, setSessionLoading] = useState(true);
+
+  const [activeMatches, setActiveMatches] = useState<MatchDto[]>([]);
+  const [completedMatches, setCompletedMatches] = useState<MatchDto[]>([]);
+  const [queue, setQueue] = useState<QueueEntryDto[]>([]);
+  const [sessionPlayers, setSessionPlayers] = useState<SessionPlayerDto[]>([]);
+  const [dataLoading, setDataLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const [scoringMatch, setScoringMatch] = useState<MatchDto | null>(null);
+  const [manualMixCourtNumber, setManualMixCourtNumber] = useState<number | null>(null);
+  const [busyCourt, setBusyCourt] = useState<number | null>(null);
+
+  useEffect(() => {
+    getActiveSession()
+      .then(setSession)
+      .catch(() => setError("Couldn't load your active session."))
+      .finally(() => setSessionLoading(false));
+  }, []);
+
+  const loadMatches = async (sessionId: number, opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setDataLoading(true);
+    setError(null);
+    try {
+      const [active, completed, queueData, players] = await Promise.all([
+        getActiveMatches(sessionId),
+        getCompletedMatches(sessionId),
+        getQueue(sessionId),
+        getSessionPlayers(sessionId),
+      ]);
+      setActiveMatches(active);
+      setCompletedMatches(completed);
+      setQueue(queueData);
+      setSessionPlayers(players);
+    } catch {
+      setError("Couldn't load matches for this session.");
+    } finally {
+      if (!opts?.silent) setDataLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (session) void loadMatches(session.sessionId);
+  }, [session]);
+
+  // This is the ACTUAL smart-mix — picks 4 players off the priority-ordered queue
+  // (honoring locked pairs) and immediately starts a real match on this court.
+  const handleSmartMix = async (courtNumber: number) => {
+    if (!session) return;
+    setBusyCourt(courtNumber);
+    setError(null);
+    try {
+      await smartMixCourt(session.sessionId, courtNumber);
+      await loadMatches(session.sessionId, { silent: true });
+    } catch (err) {
+      const apiErr = err as { message?: string };
+      setError(apiErr.message ?? "Couldn't fill this court — there may not be enough players queued.");
+    } finally {
+      setBusyCourt(null);
+    }
+  };
+
+  if (sessionLoading) {
+    return (
+      <AppShell>
+        <div className="flex items-center gap-2 text-sm text-zinc-400">
+          <Loader2 className="size-4 animate-spin" /> Loading matches…
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (!session) {
+    return (
+      <AppShell>
+        <PageHeader eyebrow="Live scoreboard" title="Matches" subtitle="No active session right now." />
+        <Panel className="text-center text-sm text-zinc-400">
+          Start a session to see live courts and match results here.
+        </Panel>
+      </AppShell>
+    );
+  }
+
+  const matchByCourt = new Map(activeMatches.map((m) => [m.courtNumber, m]));
+  const courts = Array.from({ length: session.numberOfCourts }, (_, i) => i + 1);
+  const idleCourtNumbers = courts.filter((c) => !matchByCourt.has(c));
+
+  const lockedPartnerByPlayerId = new Map<number, number>();
+  sessionPlayers.forEach((sp) => {
+    if (sp.lockedPartnerId != null) lockedPartnerByPlayerId.set(sp.playerId, sp.lockedPartnerId);
+  });
+  const courtPreviews = buildCourtPreviews(queue, lockedPartnerByPlayerId, idleCourtNumbers.length);
+
   return (
     <AppShell>
-      <PageHeader
-        eyebrow="Live scoreboard"
-        title="Matches"
-        subtitle="3 courts in play, 27 matches recorded today."
-        action={
-          <button className="shrink-0 rounded-full bg-brand px-4 py-2 text-sm font-semibold text-zinc-900 ring-1 ring-black/10 shadow-lg shadow-brand/30 transition-transform hover:bg-brand-dark hover:text-white active:scale-[0.97]">
-            + Record Result
-          </button>
-        }
+      {/* Pickleball-court-styled backdrop for the whole page: deep court-blue fading
+          into court-green at the edges, with a faint line grid over the top. */}
+      <div className="court-lines -mx-4 -mt-2 rounded-[28px] bg-linear-to-b from-court/15 via-transparent to-brand-soft/40 px-4 pb-6 pt-2 sm:-mx-6 sm:px-6">
+        <PageHeader
+          eyebrow="Live scoreboard"
+          title="Matches"
+          subtitle={`${activeMatches.length} of ${session.numberOfCourts} court${session.numberOfCourts === 1 ? "" : "s"} in play, ${completedMatches.length} match${completedMatches.length === 1 ? "" : "es"} recorded this session.`}
+        />
+
+        {error && <p className="mb-4 text-sm font-semibold text-red-600">{error}</p>}
+
+        {dataLoading ? (
+          <div className="flex items-center gap-2 text-sm text-zinc-400">
+            <Loader2 className="size-4 animate-spin" /> Loading courts…
+          </div>
+        ) : (
+          <>
+            <div className="mx-auto flex flex-wrap justify-center gap-6" style={{ maxWidth: wrapperMaxWidth(courts.length) }}>
+              {courts.map((courtNumber) => {
+                const match = matchByCourt.get(courtNumber);
+
+                if (match) {
+                  return (
+                    <div
+                      key={courtNumber}
+                      style={{ width: CARD_WIDTH }}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => navigate("/queue")}
+                      className="relative cursor-pointer overflow-hidden rounded-[20px] bg-[#7c9c66] p-3 ring-2 ring-white/40 transition-transform hover:scale-[1.01]"
+                    >
+                      <div className="relative">
+                        <div className="mb-3 flex items-center justify-between">
+                          <span
+                            className={`rounded-full px-2.5 py-1 text-xs font-black uppercase tracking-[0.15em] text-white shadow ${courtAccent(courtNumber)}`}
+                          >
+                            Court {courtNumber}
+                          </span>
+                          <span className="pulse-dot rounded-full bg-red-600 px-2.5 py-1 text-[10px] font-black uppercase text-white shadow">
+                            Live
+                          </span>
+                        </div>
+
+                        {/* Pickleball court view: blue sides, light-blue kitchen strip,
+                            black net line down the middle, framed in a white border. */}
+                        <div className="grid grid-cols-[1fr_26px_1fr] overflow-hidden rounded-xl border-4 border-white shadow-inner">
+                          <div className="flex flex-col items-center justify-center gap-1 bg-[#3d6f96] px-2 py-4 text-center">
+                            {match.team1.map((p) => (
+                              <p key={p.playerId} className="truncate text-base font-black text-white drop-shadow">
+                                {p.fullName}
+                              </p>
+                            ))}
+                          </div>
+                          <div className="relative bg-[#5fb9d6]">
+                            <div className="absolute inset-y-0 left-1/2 w-[3px] -translate-x-1/2 bg-zinc-900" />
+                          </div>
+                          <div className="flex flex-col items-center justify-center gap-1 bg-[#3d6f96] px-2 py-4 text-center">
+                            {match.team2.map((p) => (
+                              <p key={p.playerId} className="truncate text-base font-black text-white drop-shadow">
+                                {p.fullName}
+                              </p>
+                            ))}
+                          </div>
+                        </div>
+
+                        <Button
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setScoringMatch(match);
+                          }}
+                          className="mt-3 w-full rounded-full bg-white font-bold text-zinc-900 hover:bg-zinc-100"
+                        >
+                          Record Result
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                }
+
+                // Idle court: same pickleball-court background as a live match, but with
+                // a "Next Up" preview (pairing-aware — see buildCourtPreviews above) sitting
+                // in the court instead of live team names, so a locked pair always shows up
+                // together here exactly as Smart Mix would actually place them.
+                const idleIndex = idleCourtNumbers.indexOf(courtNumber);
+                const previewPlayers = idleIndex >= 0 ? courtPreviews[idleIndex] : [];
+                const hasFullPreview = previewPlayers.length === 4;
+                const left = previewPlayers.slice(0, 2);
+                const right = previewPlayers.slice(2, 4);
+
+                return (
+                  <div
+                    key={courtNumber}
+                    style={{ width: CARD_WIDTH }}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => navigate("/queue")}
+                    className="relative cursor-pointer overflow-hidden rounded-[20px] bg-[#7c9c66] p-3 ring-2 ring-white/25 transition-transform hover:scale-[1.01]"
+                  >
+                    <div className="relative">
+                      <div className="mb-3 flex items-center justify-between">
+                        <span
+                          className={`rounded-full px-2.5 py-1 text-xs font-black uppercase tracking-[0.15em] text-white shadow ${courtAccent(courtNumber)}`}
+                        >
+                          Court {courtNumber}
+                        </span>
+                        <span className="rounded-full bg-zinc-900/70 px-2.5 py-1 text-[10px] font-black uppercase text-white shadow">
+                          {hasFullPreview ? "Next Up" : "Available"}
+                        </span>
+                      </div>
+
+                      <div className="grid min-h-[92px] grid-cols-[1fr_26px_1fr] overflow-hidden rounded-xl border-4 border-white/80 shadow-inner">
+                        <div className="flex flex-col items-center justify-center gap-1 bg-[#3d6f96]/85 px-2 py-4 text-center">
+                          {left.length > 0 ? (
+                            left.map((p) => (
+                              <p key={p.queueId} className="truncate text-sm font-black text-white drop-shadow">
+                                {p.fullName}
+                              </p>
+                            ))
+                          ) : (
+                            <span className="text-[10px] font-bold uppercase text-white/60">Open</span>
+                          )}
+                        </div>
+                        <div className="relative bg-[#5fb9d6]/85">
+                          <div className="absolute inset-y-0 left-1/2 w-[3px] -translate-x-1/2 bg-zinc-900/70" />
+                        </div>
+                        <div className="flex flex-col items-center justify-center gap-1 bg-[#3d6f96]/85 px-2 py-4 text-center">
+                          {right.length > 0 ? (
+                            right.map((p) => (
+                              <p key={p.queueId} className="truncate text-sm font-black text-white drop-shadow">
+                                {p.fullName}
+                              </p>
+                            ))
+                          ) : (
+                            <span className="text-[10px] font-bold uppercase text-white/60">Open</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {!hasFullPreview && (
+                        <p className="mt-2 text-center text-xs font-bold text-white drop-shadow">
+                          {previewPlayers.length === 0
+                            ? "No one queued for this court yet"
+                            : `Waiting on ${4 - previewPlayers.length} more`}
+                        </p>
+                      )}
+
+                      <div className="mt-3 flex w-full gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={busyCourt === courtNumber || !hasFullPreview}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleSmartMix(courtNumber);
+                          }}
+                          className="flex-1 rounded-full bg-white/95 font-bold hover:bg-white"
+                        >
+                          <Shuffle className="size-3.5" />
+                          {busyCourt === courtNumber ? "…" : "Smart Mix"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          disabled={queue.length < 4}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setManualMixCourtNumber(courtNumber);
+                          }}
+                          className="flex-1 rounded-full bg-ink font-bold text-white hover:bg-zinc-800"
+                        >
+                          <Swords className="size-3.5" /> Manual Match
+                        </Button>
+                      </div>
+                      {queue.length < 4 && (
+                        <p className="mt-2 text-center text-[11px] font-bold text-white/90 drop-shadow">
+                          Need 4+ in queue to fill a court
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="mt-6">
+              <Panel>
+                <h2 className="mb-4 text-sm font-bold">Recent results</h2>
+                {completedMatches.length === 0 ? (
+                  <p className="text-sm text-zinc-400">No completed matches yet this session.</p>
+                ) : (
+                  <div className="divide-y divide-zinc-100">
+                    {completedMatches.map((m) => (
+                      <div
+                        key={m.matchId}
+                        className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 py-3"
+                      >
+                        <p className="truncate text-right text-sm font-bold text-zinc-800">
+                          {m.team1.map((p) => p.fullName).join(" / ")}
+                        </p>
+                        <span className="shrink-0 rounded-lg bg-brand-soft px-3 py-1 text-sm font-black tabular-nums text-brand-dark">
+                          {m.team1Score ?? 0}-{m.team2Score ?? 0}
+                        </span>
+                        <p className="truncate text-sm font-bold text-zinc-800">
+                          {m.team2.map((p) => p.fullName).join(" / ")}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Panel>
+            </div>
+          </>
+        )}
+      </div>
+
+      <RecordResultDialog
+        match={scoringMatch}
+        sessionId={session.sessionId}
+        onClose={() => setScoringMatch(null)}
+        onRecorded={() => {
+          setScoringMatch(null);
+          void loadMatches(session.sessionId, { silent: true });
+        }}
       />
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 sm:gap-6">
-        {LIVE.map((m) => (
-          <div
-            key={m.court}
-            className="court-lines relative overflow-hidden rounded-[20px] bg-gradient-to-br from-court to-brand-dark p-5 text-white ring-1 ring-black/10 sm:p-6"
-          >
-            <div className="relative">
-              <div className="mb-6 flex items-center justify-between">
-                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/80">{m.court}</p>
-                <span className="pulse-dot flex items-center gap-1.5 rounded-full bg-red-500/90 px-2 py-0.5 text-[9px] font-bold uppercase text-white">
-                  Live
-                </span>
-              </div>
-              <div className="space-y-3">
-                <TeamScore names={m.a} score={m.scoreA} leading={m.scoreA > m.scoreB} />
-                <div className="flex items-center gap-3 text-[10px] font-bold uppercase tracking-wider text-white/60">
-                  <div className="h-px flex-1 bg-white/20" />
-                  vs
-                  <div className="h-px flex-1 bg-white/20" />
-                </div>
-                <TeamScore names={m.b} score={m.scoreB} leading={m.scoreB > m.scoreA} />
-              </div>
-              {m.tag && (
-                <div className="mt-6 rounded-full bg-ball px-3 py-1 text-center text-[10px] font-bold uppercase tracking-wider text-zinc-900">
-                  ★ {m.tag}
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="mt-6">
-        <Panel>
-          <h2 className="mb-4 text-sm font-semibold">Recent results</h2>
-          <div className="divide-y divide-zinc-100">
-            {COMPLETED.map((m, i) => (
-              <div key={i} className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 py-3">
-                <p className="truncate text-right text-sm font-semibold">{m.a}</p>
-                <span className="shrink-0 rounded-lg bg-brand-soft px-3 py-1 text-sm font-bold tabular-nums text-brand-dark">
-                  {m.score}
-                </span>
-                <p className="truncate text-sm font-semibold text-zinc-500">{m.b}</p>
-              </div>
-            ))}
-          </div>
-        </Panel>
-      </div>
+      <ManualMixDialog
+        courtNumber={manualMixCourtNumber}
+        queue={queue}
+        sessionId={session.sessionId}
+        onClose={() => setManualMixCourtNumber(null)}
+        onCreated={() => {
+          setManualMixCourtNumber(null);
+          void loadMatches(session.sessionId, { silent: true });
+        }}
+      />
     </AppShell>
   );
 }
 
-function TeamScore({ names, score, leading }: { names: string[]; score: number; leading: boolean }) {
+function RecordResultDialog({
+  match,
+  sessionId,
+  onClose,
+  onRecorded,
+}: {
+  match: MatchDto | null;
+  sessionId: number;
+  onClose: () => void;
+  onRecorded: () => void;
+}) {
+  const [team1Score, setTeam1Score] = useState("");
+  const [team2Score, setTeam2Score] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setTeam1Score("");
+    setTeam2Score("");
+    setError(null);
+  }, [match]);
+
+  if (!match) return null;
+
+  const handleSubmit = async () => {
+    const t1 = Number(team1Score);
+    const t2 = Number(team2Score);
+    if (!Number.isFinite(t1) || !Number.isFinite(t2) || t1 < 0 || t2 < 0) {
+      setError("Enter a valid, non-negative score for both teams.");
+      return;
+    }
+    if (match.courtNumber == null) {
+      setError("This match has no court number and can't be recorded.");
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+    try {
+      await recordMatchResult(sessionId, {
+        courtNumber: match.courtNumber,
+        team1PlayerIds: match.team1.map((p) => p.playerId),
+        team2PlayerIds: match.team2.map((p) => p.playerId),
+        team1Score: t1,
+        team2Score: t2,
+      });
+      onRecorded();
+    } catch {
+      setError("Couldn't record that result. Double-check the scores and try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
-      <p className="truncate text-base font-bold">{names.join(" / ")}</p>
-      <span
-        className={`shrink-0 text-3xl font-bold tabular-nums ${
-          leading ? "text-ball" : "text-white/80"
-        }`}
-      >
-        {String(score).padStart(2, "0")}
-      </span>
-    </div>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Record result — Court {match.courtNumber ?? "?"}</DialogTitle>
+        </DialogHeader>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <p className="mb-1 truncate text-sm font-semibold">
+              {match.team1.map((p) => p.fullName).join(" / ")}
+            </p>
+            <Input
+              type="number"
+              min={0}
+              inputMode="numeric"
+              value={team1Score}
+              onChange={(e) => setTeam1Score(e.target.value)}
+              placeholder="Score"
+            />
+          </div>
+          <div>
+            <p className="mb-1 truncate text-sm font-semibold">
+              {match.team2.map((p) => p.fullName).join(" / ")}
+            </p>
+            <Input
+              type="number"
+              min={0}
+              inputMode="numeric"
+              value={team2Score}
+              onChange={(e) => setTeam2Score(e.target.value)}
+              placeholder="Score"
+            />
+          </div>
+        </div>
+
+        {error && <p className="text-sm text-red-500">{error}</p>}
+
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant="outline" disabled={submitting}>
+              Cancel
+            </Button>
+          </DialogClose>
+          <Button onClick={handleSubmit} disabled={submitting}>
+            {submitting ? "Saving…" : "Save result"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ManualMixDialog({
+  courtNumber,
+  queue,
+  sessionId,
+  onClose,
+  onCreated,
+}: {
+  courtNumber: number | null;
+  queue: QueueEntryDto[];
+  sessionId: number;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [team1, setTeam1] = useState<number[]>([]);
+  const [team2, setTeam2] = useState<number[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setTeam1([]);
+    setTeam2([]);
+    setError(null);
+  }, [courtNumber]);
+
+  const open = courtNumber !== null;
+
+  // Tap a player to cycle: unselected -> Team 1 -> Team 2 -> unselected.
+  const cyclePlayer = (playerId: number) => {
+    if (team1.includes(playerId)) {
+      setTeam1((t) => t.filter((id) => id !== playerId));
+      if (team2.length < 2) setTeam2((t) => [...t, playerId]);
+      return;
+    }
+    if (team2.includes(playerId)) {
+      setTeam2((t) => t.filter((id) => id !== playerId));
+      return;
+    }
+    if (team1.length < 2) {
+      setTeam1((t) => [...t, playerId]);
+    }
+  };
+
+  const nameFor = (id: number) => queue.find((q) => q.playerId === id)?.fullName ?? "";
+
+  const handleSubmit = async () => {
+    if (courtNumber === null) return;
+    if (team1.length !== 2 || team2.length !== 2) {
+      setError("Pick exactly 2 players for each team.");
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+    try {
+      await manualMixCourt(sessionId, courtNumber, [
+        { playerId: team1[0], partnerId: team1[1] },
+        { playerId: team2[0], partnerId: team2[1] },
+      ]);
+      onCreated();
+    } catch (err) {
+      const apiErr = err as { message?: string };
+      setError(apiErr.message ?? "Couldn't create that match. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Manual Match — Court {courtNumber}</DialogTitle>
+          <DialogDescription>Tap players to build Team 1, then Team 2.</DialogDescription>
+        </DialogHeader>
+
+        <div className="grid grid-cols-2 gap-4 text-center text-xs font-semibold uppercase tracking-wider text-zinc-400">
+          <p>Team 1 ({team1.length}/2){team1.map((id) => ` • ${nameFor(id)}`)}</p>
+          <p>Team 2 ({team2.length}/2){team2.map((id) => ` • ${nameFor(id)}`)}</p>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          {queue.map((q) => {
+            const inTeam1 = team1.includes(q.playerId);
+            const inTeam2 = team2.includes(q.playerId);
+            return (
+              <button
+                key={q.queueId}
+                type="button"
+                onClick={() => cyclePlayer(q.playerId)}
+                className={`flex items-center justify-between rounded-xl px-3 py-2 text-left text-sm ${
+                  inTeam1
+                    ? "bg-brand text-zinc-900"
+                    : inTeam2
+                      ? "bg-ink text-white"
+                      : "bg-zinc-50 hover:bg-zinc-100"
+                }`}
+              >
+                <span className="font-medium">{q.fullName}</span>
+                <span className="text-xs opacity-70">
+                  {inTeam1 ? "Team 1" : inTeam2 ? "Team 2" : q.skillCategory}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {error && <p className="text-sm text-red-500">{error}</p>}
+
+        <DialogFooter>
+          <Button onClick={handleSubmit} disabled={submitting} className="w-full">
+            {submitting ? "Creating…" : "Create match"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 </file>
 
 <file path="src/pages/Players.tsx">
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { Plus, Pencil, Trash2, Search, Loader2 } from "lucide-react";
 import { AppShell, PageHeader, Panel } from "@/components/app-shell";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
+import { getAllPlayers, createPlayer, updatePlayer, deletePlayer } from "@/services/players";
+import type { PlayerDto } from "@/services/players";
 
-const PLAYERS = [
-  { name: "Sarah Jenkins", rating: 4.5, wins: 42, losses: 4, tier: "Pro" },
-  { name: "Marcus Thorne", rating: 4.3, wins: 38, losses: 7, tier: "Pro" },
-  { name: "Elena Rodriguez", rating: 4.1, wins: 35, losses: 9, tier: "Advanced" },
-  { name: "Jordan Miller", rating: 3.9, wins: 28, losses: 12, tier: "Advanced" },
-  { name: "Kelly Chen", rating: 3.8, wins: 26, losses: 14, tier: "Advanced" },
-  { name: "Aiden Ross", rating: 3.5, wins: 19, losses: 15, tier: "Intermediate" },
-  { name: "Priya Davis", rating: 3.4, wins: 17, losses: 16, tier: "Intermediate" },
-  { name: "Tommy Nguyen", rating: 3.0, wins: 12, losses: 20, tier: "Rec" },
-];
+const SKILL_CATEGORIES = ["Novice", "Intermediate", "Advanced"] as const;
 
 const TIER_STYLE: Record<string, string> = {
-  Pro: "bg-ink text-white",
-  Advanced: "bg-brand text-zinc-900",
-  Intermediate: "bg-ball text-zinc-900",
-  Rec: "bg-zinc-200 text-zinc-700",
+  Advanced: "bg-ink text-white",
+  Intermediate: "bg-brand text-zinc-900",
+  Novice: "bg-zinc-200 text-zinc-700",
 };
 
+const emptyForm = { fullName: "", skillCategory: "Novice" as string };
+
 export default function PlayersPage() {
+  const [players, setPlayers] = useState<PlayerDto[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingPlayer, setEditingPlayer] = useState<PlayerDto | null>(null);
+  const [form, setForm] = useState(emptyForm);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const [deleteTarget, setDeleteTarget] = useState<PlayerDto | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const loadPlayers = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await getAllPlayers();
+      setPlayers(data);
+    } catch {
+      setError("Couldn't load players.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadPlayers();
+  }, []);
+
+  const filteredPlayers = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return players;
+    return players.filter((p) => p.fullName.toLowerCase().includes(q));
+  }, [players, search]);
+
+  const openAddDialog = () => {
+    setEditingPlayer(null);
+    setForm(emptyForm);
+    setFormError(null);
+    setDialogOpen(true);
+  };
+
+  const openEditDialog = (player: PlayerDto) => {
+    setEditingPlayer(player);
+    setForm({ fullName: player.fullName, skillCategory: player.skillCategory });
+    setFormError(null);
+    setDialogOpen(true);
+  };
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setFormError(null);
+    setSaving(true);
+
+    try {
+      if (editingPlayer) {
+        await updatePlayer(editingPlayer.playerId, {
+          fullName: form.fullName,
+          skillCategory: form.skillCategory,
+        });
+      } else {
+        await createPlayer({
+          fullName: form.fullName,
+          skillCategory: form.skillCategory,
+        });
+      }
+      setDialogOpen(false);
+      await loadPlayers();
+    } catch (err) {
+      const apiErr = err as { message?: string };
+      setFormError(apiErr.message ?? "Couldn't save this player. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await deletePlayer(deleteTarget.playerId);
+      setDeleteTarget(null);
+      await loadPlayers();
+    } catch {
+      setError("Couldn't delete that player. Please try again.");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <AppShell>
       <PageHeader
         eyebrow="Roster"
         title="Players"
-        subtitle="128 members across 4 skill tiers."
+        subtitle={`${players.length} member${players.length === 1 ? "" : "s"} across ${SKILL_CATEGORIES.length} skill tiers.`}
         action={
-          <button className="shrink-0 rounded-full bg-brand px-4 py-2 text-sm font-semibold text-zinc-900 ring-1 ring-black/10 shadow-lg shadow-brand/30 transition-transform hover:bg-brand-dark hover:text-white active:scale-[0.97]">
-            + Add Player
-          </button>
+          <Button
+            onClick={openAddDialog}
+            className="shrink-0 rounded-full bg-brand text-zinc-900 shadow-lg shadow-brand/30 hover:bg-brand-dark hover:text-white"
+          >
+            <Plus className="size-4" /> Add Player
+          </Button>
         }
       />
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {PLAYERS.map((p) => (
-          <Panel key={p.name} className="group relative overflow-hidden">
-            <div className="absolute -right-6 -top-6 size-24 rounded-full bg-brand-soft transition-transform group-hover:scale-110" />
-            <div className="relative">
-              <div className="mb-4 flex items-center gap-3">
-                <div className="grid size-12 shrink-0 place-items-center rounded-full bg-gradient-to-br from-ball to-brand text-sm font-bold text-zinc-900 ring-2 ring-white shadow-sm">
-                  {p.name.split(" ").map((n) => n[0]).join("")}
-                </div>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold">{p.name}</p>
-                  <span className={`inline-block rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${TIER_STYLE[p.tier]}`}>
-                    {p.tier}
-                  </span>
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-2 border-t border-zinc-100 pt-3">
-                <Stat label="Rating" value={p.rating.toFixed(1)} />
-                <Stat label="Wins" value={String(p.wins)} accent />
-                <Stat label="Losses" value={String(p.losses)} />
-              </div>
-            </div>
-          </Panel>
-        ))}
+
+      <div className="relative mb-6 max-w-sm">
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-zinc-400" />
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search players…"
+          className="pl-9"
+        />
       </div>
+
+      {loading ? (
+        <div className="flex items-center gap-2 text-sm text-zinc-400">
+          <Loader2 className="size-4 animate-spin" /> Loading roster…
+        </div>
+      ) : error ? (
+        <p className="text-sm text-red-500">{error}</p>
+      ) : filteredPlayers.length === 0 ? (
+        <Panel className="text-center text-sm text-zinc-400">
+          {players.length === 0 ? "No players yet. Add one to get started." : "No players match your search."}
+        </Panel>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {filteredPlayers.map((p) => (
+            <Panel key={p.playerId} className="group relative overflow-hidden">
+              <div className="absolute -right-6 -top-6 size-24 rounded-full bg-brand-soft transition-transform group-hover:scale-110" />
+
+              <div className="absolute right-3 top-3 z-10 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                <button
+                  onClick={() => openEditDialog(p)}
+                  className="grid size-7 place-items-center rounded-full bg-white text-zinc-500 ring-1 ring-black/5 hover:text-zinc-900"
+                  aria-label={`Edit ${p.fullName}`}
+                >
+                  <Pencil className="size-3.5" />
+                </button>
+                <button
+                  onClick={() => setDeleteTarget(p)}
+                  className="grid size-7 place-items-center rounded-full bg-white text-zinc-500 ring-1 ring-black/5 hover:text-red-500"
+                  aria-label={`Delete ${p.fullName}`}
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              </div>
+
+              <div className="relative">
+                <div className="mb-4 flex items-center gap-3">
+                  <div className="grid size-12 shrink-0 place-items-center rounded-full bg-linear-to-br from-ball to-brand text-sm font-bold text-zinc-900 ring-2 ring-white shadow-sm">
+                    {p.fullName.split(" ").map((n) => n[0]).join("").slice(0, 2)}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold">{p.fullName}</p>
+                    <span
+                      className={`inline-block rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
+                        TIER_STYLE[p.skillCategory] ?? "bg-zinc-200 text-zinc-700"
+                      }`}
+                    >
+                      {p.skillCategory}
+                    </span>
+                  </div>
+                </div>
+                <div className="grid grid-cols-4 gap-2 border-t border-zinc-100 pt-3">
+                  <Stat label="Rating" value={Number(p.skillLevel).toFixed(1)} />
+                  <Stat label="Wins" value={String(p.totalWins)} accent />
+                  <Stat label="Losses" value={String(p.totalLosses)} />
+                  <Stat label="Win %" value={`${p.winPercentage.toFixed(0)}%`} accent />
+                </div>
+              </div>
+            </Panel>
+          ))}
+        </div>
+      )}
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingPlayer ? "Edit player" : "Add a player"}</DialogTitle>
+            <DialogDescription>
+              {editingPlayer
+                ? "Update this player's name or skill category."
+                : "Skill level is assigned automatically based on category."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="fullName">Full name</Label>
+              <Input
+                id="fullName"
+                required
+                value={form.fullName}
+                onChange={(e) => setForm((f) => ({ ...f, fullName: e.target.value }))}
+                placeholder="Jane Player"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="skillCategory">Skill category</Label>
+              <Select
+                value={form.skillCategory}
+                onValueChange={(value) => setForm((f) => ({ ...f, skillCategory: value }))}
+              >
+                <SelectTrigger id="skillCategory">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SKILL_CATEGORIES.map((cat) => (
+                    <SelectItem key={cat} value={cat}>
+                      {cat}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {formError && <p className="text-sm text-red-500">{formError}</p>}
+
+            <DialogFooter>
+              <Button type="submit" disabled={saving} className="w-full">
+                {saving ? "Saving…" : editingPlayer ? "Save changes" : "Add player"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {deleteTarget?.fullName}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes them from the roster permanently. This can't be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={deleting}
+              className="bg-red-500 hover:bg-red-600 focus:ring-red-500"
+            >
+              {deleting ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppShell>
   );
 }
@@ -6952,139 +8344,704 @@ function Stat({ label, value, accent }: { label: string; value: string; accent?:
   return (
     <div>
       <p className="text-[9px] font-semibold uppercase tracking-wider text-zinc-400">{label}</p>
-      <p className={`text-base font-bold tabular-nums ${accent ? "text-brand-dark" : "text-zinc-900"}`}>
-        {value}
-      </p>
+      <p className={`text-base font-bold tabular-nums ${accent ? "text-brand-dark" : "text-zinc-900"}`}>{value}</p>
     </div>
   );
 }
 </file>
 
 <file path="src/pages/Queue.tsx">
+import { useEffect, useMemo, useState } from "react";
+import { Loader2, Sparkles, Users, Lock, Unlock, Swords } from "lucide-react";
 import { AppShell, PageHeader, Panel } from "@/components/app-shell";
-
-const QUEUE = [
-  { name: "Jordan Miller", waited: "2m", rating: 3.9 },
-  { name: "Kelly Chen", waited: "2m", rating: 3.8 },
-  { name: "Aiden Ross", waited: "5m", rating: 3.5 },
-  { name: "Priya Davis", waited: "7m", rating: 3.4 },
-  { name: "Tommy Nguyen", waited: "11m", rating: 3.0 },
-  { name: "Riley Patel", waited: "14m", rating: 3.2 },
-];
-
-const BENCH = [
-  { name: "Chris Wong", reason: "Rest" },
-  { name: "Maya Rivera", reason: "Injury" },
-];
+import { Button } from "@/components/ui/button";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { getMySessions, getSessionPlayers, lockPair, unlockPair } from "@/services/sessions";
+import {
+  getQueue,
+  enqueuePlayer,
+  autoMatch,
+  getActiveMatches,
+  benchPlayer,
+  returnToQueue,
+  manualMixCourt,
+} from "@/services/matches";
+import type { SessionDto, SessionPlayerDto } from "@/services/sessions";
+import type { QueueEntryDto, MatchDto } from "@/services/matches";
 
 export default function QueuePage() {
+  const [activeSessions, setActiveSessions] = useState<SessionDto[]>([]);
+  const [selectedSessionId, setSelectedSessionId] = useState<number | null>(null);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+
+  const [sessionPlayers, setSessionPlayers] = useState<SessionPlayerDto[]>([]);
+  const [queue, setQueue] = useState<QueueEntryDto[]>([]);
+  const [activeMatches, setActiveMatches] = useState<MatchDto[]>([]);
+  const [initialLoading, setInitialLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const [pendingPlayerId, setPendingPlayerId] = useState<number | null>(null);
+  const [autoMixing, setAutoMixing] = useState(false);
+
+  // Lock-pair flow: pick a player, then pick who to pair them with.
+  const [lockingPlayerId, setLockingPlayerId] = useState<number | null>(null);
+
+  const [manualMatchOpen, setManualMatchOpen] = useState(false);
+
+  const selectedSession = useMemo(
+    () => activeSessions.find((s) => s.sessionId === selectedSessionId) ?? null,
+    [activeSessions, selectedSessionId],
+  );
+
+  useEffect(() => {
+    getMySessions()
+      .then((all) => {
+        const active = all.filter((s) => s.status === "Active");
+        setActiveSessions(active);
+        if (active.length > 0) setSelectedSessionId(active[0].sessionId);
+      })
+      .catch(() => setError("Couldn't load sessions."))
+      .finally(() => setSessionsLoading(false));
+  }, []);
+
+  // `silent` skips the loading spinner — used after actions so the list updates
+  // in place instead of the whole panel blanking out and reappearing.
+  const loadSessionData = async (sessionId: number, opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setInitialLoading(true);
+    setError(null);
+    try {
+      const [players, queueData, matches] = await Promise.all([
+        getSessionPlayers(sessionId),
+        getQueue(sessionId),
+        getActiveMatches(sessionId),
+      ]);
+      setSessionPlayers(players);
+      setQueue(queueData);
+      setActiveMatches(matches);
+    } catch {
+      setError("Couldn't load the queue for this session.");
+    } finally {
+      if (!opts?.silent) setInitialLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedSessionId !== null) void loadSessionData(selectedSessionId);
+  }, [selectedSessionId]);
+
+  // Players currently on a court, derived from the active matches themselves — this is
+  // the only reliable source, since a player mid-match has no "Waiting" queue entry.
+  const inMatchPlayerIds = useMemo(() => {
+    const ids = new Set<number>();
+    activeMatches.forEach((m) => {
+      m.team1.forEach((p) => ids.add(p.playerId));
+      m.team2.forEach((p) => ids.add(p.playerId));
+    });
+    return ids;
+  }, [activeMatches]);
+
+  const courtByPlayerId = useMemo(() => {
+    const map = new Map<number, number>();
+    activeMatches.forEach((m) => {
+      if (m.courtNumber == null) return;
+      [...m.team1, ...m.team2].forEach((p) => map.set(p.playerId, m.courtNumber!));
+    });
+    return map;
+  }, [activeMatches]);
+
+  const benched = useMemo(() => sessionPlayers.filter((sp) => sp.status === "Benched"), [sessionPlayers]);
+
+  const inMatchPlayers = useMemo(
+    () => sessionPlayers.filter((sp) => inMatchPlayerIds.has(sp.playerId)),
+    [sessionPlayers, inMatchPlayerIds],
+  );
+
+  // 🐛 FIX: this used to only exclude players already in the Waiting queue, so anyone
+  // currently ON COURT (no Waiting entry, since they're "InMatch") wrongly showed up
+  // here with an "Add to queue" button, even mid-game. Now also excludes in-match players.
+  const availableToQueue = useMemo(() => {
+    const queuedIds = new Set(queue.map((q) => q.playerId));
+    return sessionPlayers.filter(
+      (sp) => sp.status === "CheckedIn" && !queuedIds.has(sp.playerId) && !inMatchPlayerIds.has(sp.playerId),
+    );
+  }, [sessionPlayers, queue, inMatchPlayerIds]);
+
+  const sessionPlayerByPlayerId = useMemo(() => {
+    const map = new Map<number, SessionPlayerDto>();
+    sessionPlayers.forEach((sp) => map.set(sp.playerId, sp));
+    return map;
+  }, [sessionPlayers]);
+
+  const upNext = queue.slice(0, 4);
+
+  const handleEnqueue = async (playerId: number) => {
+    if (!selectedSessionId) return;
+    setPendingPlayerId(playerId);
+    setError(null);
+    try {
+      await enqueuePlayer(selectedSessionId, playerId);
+      await loadSessionData(selectedSessionId, { silent: true });
+    } catch {
+      setError("Couldn't add that player to the queue.");
+    } finally {
+      setPendingPlayerId(null);
+    }
+  };
+
+  // Benching now replaces "remove" as the queue's only exit action — the backend
+  // already pulls a benched player out of the queue in the same transaction.
+  const handleBench = async (playerId: number) => {
+    if (!selectedSessionId) return;
+    setPendingPlayerId(playerId);
+    setError(null);
+    try {
+      await benchPlayer(selectedSessionId, { playerId, reason: "Resting" });
+      await loadSessionData(selectedSessionId, { silent: true });
+    } catch {
+      setError("Couldn't bench that player.");
+    } finally {
+      setPendingPlayerId(null);
+    }
+  };
+
+  const handleReturnToQueue = async (playerId: number) => {
+    if (!selectedSessionId) return;
+    setPendingPlayerId(playerId);
+    setError(null);
+    try {
+      await returnToQueue(selectedSessionId, playerId);
+      await loadSessionData(selectedSessionId, { silent: true });
+    } catch (err) {
+      const apiErr = err as { message?: string };
+      setError(apiErr.message ?? "Couldn't return that player to the queue.");
+    } finally {
+      setPendingPlayerId(null);
+    }
+  };
+
+  const handleSmartMix = async () => {
+    if (!selectedSessionId) return;
+    setAutoMixing(true);
+    setError(null);
+    try {
+      await autoMatch(selectedSessionId);
+      await loadSessionData(selectedSessionId, { silent: true });
+    } catch {
+      setError("Couldn't mix a match right now — there may not be enough players queued.");
+    } finally {
+      setAutoMixing(false);
+    }
+  };
+
+  const handleLockClick = (playerId: number) => {
+    setLockingPlayerId((current) => (current === playerId ? null : playerId));
+  };
+
+  const handlePairWith = async (partnerId: number) => {
+    if (!selectedSessionId || lockingPlayerId == null) return;
+    setPendingPlayerId(partnerId);
+    setError(null);
+    try {
+      await lockPair(selectedSessionId, lockingPlayerId, partnerId);
+      setLockingPlayerId(null);
+      await loadSessionData(selectedSessionId, { silent: true });
+    } catch {
+      setError("Couldn't lock these two players. Make sure neither is benched or already paired.");
+    } finally {
+      setPendingPlayerId(null);
+    }
+  };
+
+  const handleUnlock = async (playerId: number) => {
+    if (!selectedSessionId) return;
+    setPendingPlayerId(playerId);
+    setError(null);
+    try {
+      await unlockPair(selectedSessionId, playerId);
+      await loadSessionData(selectedSessionId, { silent: true });
+    } catch {
+      setError("Couldn't unlock that pair. Please try again.");
+    } finally {
+      setPendingPlayerId(null);
+    }
+  };
+
+  const idleCourts = useMemo(() => {
+    if (!selectedSession) return [];
+    const occupied = new Set(activeMatches.map((m) => m.courtNumber).filter((c): c is number => c != null));
+    return Array.from({ length: selectedSession.numberOfCourts }, (_, i) => i + 1).filter((c) => !occupied.has(c));
+  }, [selectedSession, activeMatches]);
+
+  if (sessionsLoading) {
+    return (
+      <AppShell>
+        <div className="flex items-center gap-2 text-sm text-zinc-400">
+          <Loader2 className="size-4 animate-spin" /> Loading sessions…
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (activeSessions.length === 0) {
+    return (
+      <AppShell>
+        <PageHeader eyebrow="Live Queue" title="Player Queue" subtitle="Manage who's up next on court." />
+        <Panel className="text-center text-sm text-zinc-400">
+          No active sessions right now. Start a session to build a queue.
+        </Panel>
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell>
       <PageHeader
         eyebrow="Live Queue"
         title="Player Queue"
-        subtitle="Auto-mix pairs by skill or drag to reorder."
+        subtitle="Mix pairs by skill, priority, and locked partners."
         action={
-          <button className="shrink-0 rounded-full bg-ink px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-ink/20 transition-transform hover:bg-zinc-800 active:scale-[0.97]">
-            ✦ Auto-Mix Next Match
-          </button>
+          <div className="flex shrink-0 gap-2">
+            <Button
+              variant="outline"
+              disabled={idleCourts.length === 0 || queue.length < 4}
+              onClick={() => setManualMatchOpen(true)}
+              className="rounded-full"
+            >
+              <Swords className="size-4" /> Manual Match
+            </Button>
+            <Button
+              onClick={handleSmartMix}
+              disabled={autoMixing || queue.length < 4}
+              className="rounded-full bg-ink text-white shadow-lg shadow-ink/20 hover:bg-zinc-800"
+            >
+              <Sparkles className="size-4" /> {autoMixing ? "Mixing…" : "Smart Mix"}
+            </Button>
+          </div>
         }
       />
 
-      <div className="grid grid-cols-12 gap-4 sm:gap-6">
-        <Panel className="court-lines relative col-span-12 overflow-hidden bg-gradient-to-r from-brand to-brand-dark text-white lg:col-span-8">
-          <div className="relative">
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/80">Next up on Court 2</p>
-            <div className="mt-4 grid grid-cols-[1fr_auto_1fr] items-center gap-4">
-              <TeamBadge names={["Jordan Miller", "Kelly Chen"]} />
-              <div className="text-center">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-white/70">vs</p>
-                <div className="mx-auto mt-1 size-8 rounded-full border-2 border-dashed border-white/40" />
-              </div>
-              <TeamBadge names={["Aiden Ross", "Priya Davis"]} align="right" />
+      {activeSessions.length > 1 && (
+        <div className="mb-6 max-w-xs">
+          <Select
+            value={selectedSessionId ? String(selectedSessionId) : undefined}
+            onValueChange={(v) => setSelectedSessionId(Number(v))}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select a session" />
+            </SelectTrigger>
+            <SelectContent>
+              {activeSessions.map((s) => (
+                <SelectItem key={s.sessionId} value={String(s.sessionId)}>
+                  {s.sessionName}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
+      {error && <p className="mb-4 text-sm text-red-500">{error}</p>}
+
+      {initialLoading ? (
+        <div className="flex items-center gap-2 text-sm text-zinc-400">
+          <Loader2 className="size-4 animate-spin" /> Loading queue…
+        </div>
+      ) : (
+        <div className="grid grid-cols-12 gap-4 sm:gap-6">
+          {/* Up Next — large hero card */}
+          <Panel className="court-lines relative col-span-12 overflow-hidden bg-linear-to-r from-brand to-brand-dark text-white lg:col-span-8">
+            <div className="relative">
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/80">Up Next</p>
+              {upNext.length === 0 ? (
+                <p className="mt-4 text-sm text-white/80">No one's in the queue yet.</p>
+              ) : upNext.length < 4 ? (
+                <>
+                  <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2">
+                    {upNext.map((q) => (
+                      <p key={q.queueId} className="text-lg font-bold">
+                        {q.fullName}
+                      </p>
+                    ))}
+                  </div>
+                  <p className="mt-3 text-sm text-white/80">
+                    Need {4 - upNext.length} more queued before this becomes a match.
+                  </p>
+                </>
+              ) : (
+                <div className="mt-4 grid grid-cols-[1fr_auto_1fr] items-center gap-4">
+                  <div>
+                    <p className="truncate text-base font-bold sm:text-lg">{upNext[0].fullName}</p>
+                    <p className="truncate text-base font-bold sm:text-lg">{upNext[1].fullName}</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-white/70">vs</p>
+                    <div className="mx-auto mt-1 size-8 rounded-full border-2 border-dashed border-white/40" />
+                  </div>
+                  <div className="text-right">
+                    <p className="truncate text-base font-bold sm:text-lg">{upNext[2].fullName}</p>
+                    <p className="truncate text-base font-bold sm:text-lg">{upNext[3].fullName}</p>
+                  </div>
+                </div>
+              )}
             </div>
-            <div className="mt-6 flex flex-wrap gap-2">
-              <button className="rounded-full bg-white px-4 py-1.5 text-xs font-bold text-brand-dark transition-transform hover:scale-105">
-                Start Match
-              </button>
-              <button className="rounded-full bg-white/15 px-4 py-1.5 text-xs font-semibold text-white ring-1 ring-white/30 transition-colors hover:bg-white/25">
-                Re-mix
-              </button>
+          </Panel>
+
+          <Panel className="col-span-12 lg:col-span-4">
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-dark">Waiting</p>
+            <p className="mt-2 text-5xl font-bold tabular-nums">{queue.length}</p>
+            <p className="mt-1 text-xs text-zinc-500">
+              {queue.length < 4 ? `Need ${4 - queue.length} more to mix` : "Ready to mix"}
+            </p>
+            <div className="mt-6 space-y-2">
+              <StatRow label="Available" value={String(availableToQueue.length)} />
+              <StatRow label="In match" value={String(inMatchPlayers.length)} />
+              <StatRow label="Benched" value={String(benched.length)} />
             </div>
-          </div>
-        </Panel>
+          </Panel>
 
-        <Panel className="col-span-12 lg:col-span-4">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-dark">Waiting</p>
-          <p className="mt-2 text-5xl font-bold tabular-nums">{QUEUE.length}</p>
-          <p className="mt-1 text-xs text-zinc-500">Avg wait: 6 min</p>
-          <div className="mt-6 space-y-2">
-            <BenchStat label="Longest wait" value="14m" />
-            <BenchStat label="Benched" value={String(BENCH.length)} />
-            <BenchStat label="Matches queued" value="3" />
-          </div>
-        </Panel>
+          {/* Queue + Bench, side by side */}
+          <Panel className="col-span-12 lg:col-span-6">
+            <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold">Queue</h2>
+            {queue.length === 0 ? (
+              <p className="text-sm text-zinc-400">No one's in the queue yet — add players below.</p>
+            ) : (
+              <div className="divide-y divide-zinc-100">
+                {queue.map((q, i) => {
+                  const sp = sessionPlayerByPlayerId.get(q.playerId);
+                  const isPicking = lockingPlayerId !== null;
+                  const isPickingThis = lockingPlayerId === q.playerId;
+                  const isPickTarget = isPicking && !isPickingThis && !sp?.lockedPartnerId;
 
-        <Panel className="col-span-12 lg:col-span-8">
-          <h2 className="mb-4 text-sm font-semibold">In line</h2>
-          <div className="divide-y divide-zinc-100">
-            {QUEUE.map((p, i) => (
-              <div key={p.name} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 py-3">
-                <div className="grid size-8 shrink-0 place-items-center rounded-full bg-zinc-100 text-xs font-bold text-zinc-600">
-                  {i + 1}
-                </div>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold">{p.name}</p>
-                  <p className="text-xs text-zinc-400">Rating {p.rating.toFixed(1)}</p>
-                </div>
-                <div className="flex shrink-0 items-center gap-3">
-                  <span className="text-xs font-medium text-zinc-400">{p.waited}</span>
-                  <button className="text-[10px] font-bold uppercase tracking-wider text-red-500 hover:underline">
-                    Remove
-                  </button>
-                </div>
+                  return (
+                    <div key={q.queueId} className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-3 py-3">
+                      <div className="grid size-8 shrink-0 place-items-center rounded-full bg-brand-soft text-xs font-bold text-brand-dark">
+                        {q.position ?? i + 1}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold">{q.fullName}</p>
+                        <p className="text-xs text-zinc-400">
+                          {q.skillCategory} • Rating {Number(q.skillLevel).toFixed(1)}
+                          {sp?.lockedPartnerName ? ` • 🔒 with ${sp.lockedPartnerName}` : ""}
+                        </p>
+                      </div>
+
+                      {sp?.lockedPartnerId ? (
+                        <button
+                          onClick={() => handleUnlock(q.playerId)}
+                          disabled={pendingPlayerId === q.playerId}
+                          className="grid size-8 shrink-0 place-items-center rounded-full text-zinc-400 hover:bg-amber-50 hover:text-amber-600 disabled:opacity-50"
+                          aria-label={`Unlock ${q.fullName}`}
+                          title="Unlock pair"
+                        >
+                          <Unlock className="size-3.5" />
+                        </button>
+                      ) : isPickTarget ? (
+                        <Button
+                          size="sm"
+                          disabled={pendingPlayerId === q.playerId}
+                          onClick={() => handlePairWith(q.playerId)}
+                          className="h-8 shrink-0 rounded-full px-2.5 text-xs"
+                        >
+                          Pair here
+                        </Button>
+                      ) : (
+                        <button
+                          onClick={() => handleLockClick(q.playerId)}
+                          className={`grid size-8 shrink-0 place-items-center rounded-full ${
+                            isPickingThis
+                              ? "bg-brand text-zinc-900"
+                              : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
+                          }`}
+                          aria-label={`Lock ${q.fullName} with a partner`}
+                          title="Lock with a partner"
+                        >
+                          <Lock className="size-3.5" />
+                        </button>
+                      )}
+
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={pendingPlayerId === q.playerId}
+                        onClick={() => handleBench(q.playerId)}
+                        className="shrink-0 rounded-full"
+                      >
+                        {pendingPlayerId === q.playerId ? "…" : "Bench"}
+                      </Button>
+                    </div>
+                  );
+                })}
               </div>
-            ))}
-          </div>
-        </Panel>
+            )}
+            {lockingPlayerId !== null && (
+              <p className="mt-2 text-xs text-zinc-400">
+                Pick who to pair them with, or click the lock icon again to cancel.
+              </p>
+            )}
+          </Panel>
 
-        <Panel className="col-span-12 lg:col-span-4">
-          <h2 className="mb-4 text-sm font-semibold">On the bench</h2>
-          <div className="space-y-3">
-            {BENCH.map((p) => (
-              <div key={p.name} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-xl bg-zinc-50 p-3">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold">{p.name}</p>
-                  <p className="text-xs text-zinc-400">{p.reason}</p>
-                </div>
-                <button className="shrink-0 rounded-full bg-brand px-3 py-1 text-[10px] font-bold uppercase text-zinc-900 hover:bg-brand-dark hover:text-white">
-                  Return
-                </button>
+          <Panel className="col-span-12 lg:col-span-6">
+            <h2 className="mb-4 text-sm font-semibold">On the bench</h2>
+            {benched.length === 0 ? (
+              <p className="text-sm text-zinc-400">No one's benched.</p>
+            ) : (
+              <div className="space-y-3">
+                {benched.map((sp) => (
+                  <div
+                    key={sp.playerId}
+                    className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-xl bg-zinc-50 p-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold">{sp.fullName}</p>
+                      <p className="text-xs text-zinc-400">{sp.benchReason ?? "Resting"}</p>
+                    </div>
+                    <Button
+                      size="sm"
+                      disabled={pendingPlayerId === sp.playerId}
+                      onClick={() => handleReturnToQueue(sp.playerId)}
+                      className="shrink-0 rounded-full"
+                    >
+                      {pendingPlayerId === sp.playerId ? "…" : "Return to queue"}
+                    </Button>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </Panel>
-      </div>
+            )}
+          </Panel>
+
+          {/* Players currently on court — informational, no action. This used to be
+              lumped into "checked in, not queued" below, which was misleading since
+              these players are busy playing, not idle. */}
+          {inMatchPlayers.length > 0 && (
+            <Panel className="col-span-12">
+              <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold">
+                <Swords className="size-4" /> In Match — Players ({inMatchPlayers.length})
+              </h2>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {inMatchPlayers.map((sp) => (
+                  <div
+                    key={sp.playerId}
+                    className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-xl bg-zinc-50 px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{sp.fullName}</p>
+                      <p className="text-xs text-zinc-400">{sp.skillCategory}</p>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-brand-soft px-2 py-0.5 text-[10px] font-bold uppercase text-brand-dark">
+                      Court {courtByPlayerId.get(sp.playerId) ?? "?"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </Panel>
+          )}
+
+          {availableToQueue.length > 0 && (
+            <Panel className="col-span-12">
+              <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold">
+                <Users className="size-4" /> Checked in — Available ({availableToQueue.length})
+              </h2>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {availableToQueue.map((sp) => (
+                  <div
+                    key={sp.playerId}
+                    className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-xl px-3 py-2 ring-1 ring-zinc-100"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{sp.fullName}</p>
+                      <p className="text-xs text-zinc-400">{sp.skillCategory}</p>
+                    </div>
+                    <Button
+                      size="sm"
+                      disabled={pendingPlayerId === sp.playerId}
+                      onClick={() => handleEnqueue(sp.playerId)}
+                      className="shrink-0 rounded-full"
+                    >
+                      {pendingPlayerId === sp.playerId ? "…" : "Add to queue"}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </Panel>
+          )}
+        </div>
+      )}
+
+      {selectedSessionId && (
+        <ManualMatchDialog
+          open={manualMatchOpen}
+          sessionId={selectedSessionId}
+          queue={queue}
+          idleCourts={idleCourts}
+          onClose={() => setManualMatchOpen(false)}
+          onCreated={() => {
+            setManualMatchOpen(false);
+            void loadSessionData(selectedSessionId, { silent: true });
+          }}
+        />
+      )}
     </AppShell>
   );
 }
 
-function TeamBadge({ names, align = "left" }: { names: string[]; align?: "left" | "right" }) {
-  return (
-    <div className={align === "right" ? "text-right" : ""}>
-      {names.map((n) => (
-        <p key={n} className="truncate text-sm font-bold sm:text-base">{n}</p>
-      ))}
-    </div>
-  );
-}
-
-function BenchStat({ label, value }: { label: string; value: string }) {
+function StatRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-lg bg-zinc-50 px-3 py-2">
       <p className="truncate text-xs text-zinc-500">{label}</p>
       <p className="shrink-0 text-sm font-bold tabular-nums">{value}</p>
     </div>
+  );
+}
+
+function ManualMatchDialog({
+  open,
+  sessionId,
+  queue,
+  idleCourts,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  sessionId: number;
+  queue: QueueEntryDto[];
+  idleCourts: number[];
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [courtNumber, setCourtNumber] = useState<number | null>(null);
+  const [team1, setTeam1] = useState<number[]>([]);
+  const [team2, setTeam2] = useState<number[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      setCourtNumber(idleCourts[0] ?? null);
+      setTeam1([]);
+      setTeam2([]);
+      setError(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const cyclePlayer = (playerId: number) => {
+    if (team1.includes(playerId)) {
+      setTeam1((t) => t.filter((id) => id !== playerId));
+      if (team2.length < 2) setTeam2((t) => [...t, playerId]);
+      return;
+    }
+    if (team2.includes(playerId)) {
+      setTeam2((t) => t.filter((id) => id !== playerId));
+      return;
+    }
+    if (team1.length < 2) {
+      setTeam1((t) => [...t, playerId]);
+    }
+  };
+
+  const nameFor = (id: number) => queue.find((q) => q.playerId === id)?.fullName ?? "";
+
+  const handleSubmit = async () => {
+    if (courtNumber === null) {
+      setError("Pick a court for this match.");
+      return;
+    }
+    if (team1.length !== 2 || team2.length !== 2) {
+      setError("Pick exactly 2 players for each team.");
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+    try {
+      await manualMixCourt(sessionId, courtNumber, [
+        { playerId: team1[0], partnerId: team1[1] },
+        { playerId: team2[0], partnerId: team2[1] },
+      ]);
+      onCreated();
+    } catch (err) {
+      const apiErr = err as { message?: string };
+      setError(apiErr.message ?? "Couldn't create that match. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Manual Match</DialogTitle>
+          <DialogDescription>Pick a court, then tap players to build Team 1, then Team 2.</DialogDescription>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-1.5">
+          <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Court</p>
+          <Select
+            value={courtNumber ? String(courtNumber) : undefined}
+            onValueChange={(v) => setCourtNumber(Number(v))}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select an open court" />
+            </SelectTrigger>
+            <SelectContent>
+              {idleCourts.map((c) => (
+                <SelectItem key={c} value={String(c)}>
+                  Court {c}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4 text-center text-xs font-semibold uppercase tracking-wider text-zinc-400">
+          <p>Team 1 ({team1.length}/2){team1.map((id) => ` • ${nameFor(id)}`)}</p>
+          <p>Team 2 ({team2.length}/2){team2.map((id) => ` • ${nameFor(id)}`)}</p>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          {queue.map((q) => {
+            const inTeam1 = team1.includes(q.playerId);
+            const inTeam2 = team2.includes(q.playerId);
+            return (
+              <button
+                key={q.queueId}
+                type="button"
+                onClick={() => cyclePlayer(q.playerId)}
+                className={`flex items-center justify-between rounded-xl px-3 py-2 text-left text-sm ${
+                  inTeam1
+                    ? "bg-brand text-zinc-900"
+                    : inTeam2
+                      ? "bg-ink text-white"
+                      : "bg-zinc-50 hover:bg-zinc-100"
+                }`}
+              >
+                <span className="font-medium">{q.fullName}</span>
+                <span className="text-xs opacity-70">
+                  {inTeam1 ? "Team 1" : inTeam2 ? "Team 2" : q.skillCategory}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {error && <p className="text-sm text-red-500">{error}</p>}
+
+        <DialogFooter>
+          <Button onClick={handleSubmit} disabled={submitting} className="w-full">
+            {submitting ? "Creating…" : "Create match"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 </file>
@@ -7120,6 +9077,47 @@ function BenchStat({ label, value }: { label: string; value: string }) {
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src"]
+}
+</file>
+
+<file path="src/pages/Dashboard.tsx">
+import { Plus } from "lucide-react";
+import { Link } from "react-router-dom";
+import { AppShell, PageHeader } from "@/components/app-shell";
+import { Button } from "@/components/ui/button";
+import LeaderboardPanel from "@/components/dashboard/LeaderboardPanel";
+import SessionPanel from "@/components/dashboard/SessionPanel";
+import PlayersPanel from "@/components/dashboard/PlayersPanel";
+import { getStoredOrganizer } from "@/services/auth";
+
+export default function DashboardPage() {
+  const organizer = getStoredOrganizer();
+
+  return (
+    <AppShell>
+      <PageHeader
+        eyebrow="Pickleball Stacking Management"
+        title={`Time to Stack, ${organizer?.fullName ?? "Organizer"}!`}
+        subtitle="Loading up on pickleball, positive vibes, and a solid stack."
+        action={
+          <Button
+            asChild
+            className="hidden shrink-0 rounded-full bg-brand text-zinc-900 shadow-lg shadow-brand/30 hover:bg-brand-dark hover:text-white sm:inline-flex"
+          >
+            <Link to="/sessions">
+              <Plus className="size-4" /> Start a Session
+            </Link>
+          </Button>
+        }
+      />
+
+      <div className="grid grid-cols-12 gap-4 sm:gap-6">
+        <SessionPanel />
+        <PlayersPanel />
+        <LeaderboardPanel />
+      </div>
+    </AppShell>
+  );
 }
 </file>
 

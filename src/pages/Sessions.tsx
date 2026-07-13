@@ -1,14 +1,194 @@
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { Plus, Loader2, Users, X, Trophy, Medal } from "lucide-react";
 import { AppShell, PageHeader, Panel } from "@/components/app-shell";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  createSession,
+  getMySessions,
+  endSession,
+  addPlayerToSession,
+  getSessionPlayers,
+  removePlayerFromSession,
+} from "@/services/sessions";
+import { getAllPlayers } from "@/services/players";
+import { getSessionLeaderboard } from "@/services/leaderboard";
+import type { CreateSessionPayload, SessionDto, SessionPlayerDto } from "@/services/sessions";
+import type { PlayerDto } from "@/services/players";
+import type { LeaderboardPlayerDto } from "@/services/leaderboard";
 
-const SESSIONS = [
-  { name: "Morning Open Play", date: "Oct 24, 2024", players: 12, matches: 18, status: "live" as const },
-  { name: "Advanced Round Robin", date: "Oct 22, 2024", players: 8, matches: 24, status: "done" as const },
-  { name: "Weeknight Ladder", date: "Oct 19, 2024", players: 16, matches: 32, status: "done" as const },
-  { name: "Beginner Clinic", date: "Oct 17, 2024", players: 10, matches: 12, status: "done" as const },
-  { name: "Sunday Doubles", date: "Oct 13, 2024", players: 20, matches: 40, status: "done" as const },
-];
+// Same gold / silver / bronze badge treatment as the dashboard's Top Performers panel.
+const medalTone = (rank: number) =>
+  rank === 1 ? "bg-ball" : rank === 2 ? "bg-zinc-300" : rank === 3 ? "bg-amber-600" : "bg-zinc-100 text-zinc-500";
 
+const emptyForm = {
+  sessionName: "",
+  sessionDate: "",
+  startTime: "",
+  endTime: "",
+  numberOfCourts: 4,
+};
+
+// Lock/unlock pairing now lives on the Queue page — that's where the organizer is
+// actually looking when deciding who should play together, and it needs to react to
+// who's currently queued/in-match, which this dialog doesn't track.
 export default function SessionsPage() {
+  const [sessions, setSessions] = useState<SessionDto[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [form, setForm] = useState(emptyForm);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+
+  const [endingId, setEndingId] = useState<number | null>(null);
+
+  // Roster management
+  const [rosterSession, setRosterSession] = useState<SessionDto | null>(null);
+  const [rosterPlayers, setRosterPlayers] = useState<SessionPlayerDto[]>([]);
+  const [allPlayers, setAllPlayers] = useState<PlayerDto[]>([]);
+  const [leaders, setLeaders] = useState<LeaderboardPlayerDto[]>([]);
+  const [rosterLoading, setRosterLoading] = useState(false);
+  const [rosterError, setRosterError] = useState<string | null>(null);
+  const [pendingPlayerId, setPendingPlayerId] = useState<number | null>(null);
+  const [addSearch, setAddSearch] = useState("");
+
+  const loadSessions = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await getMySessions();
+      setSessions(data);
+    } catch {
+      setError("Couldn't load sessions.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadSessions();
+  }, []);
+
+  const handleCreate = async (e: FormEvent) => {
+    e.preventDefault();
+    setFormError(null);
+    setCreating(true);
+
+    try {
+      const payload: CreateSessionPayload = {
+        sessionName: form.sessionName,
+        sessionDate: form.sessionDate,
+        startTime: `${form.startTime}:00`,
+        endTime: `${form.endTime}:00`,
+        numberOfCourts: form.numberOfCourts,
+      };
+
+      await createSession(payload);
+      setDialogOpen(false);
+      setForm(emptyForm);
+      await loadSessions();
+    } catch (err) {
+      const apiErr = err as { message?: string };
+      setFormError(apiErr.message ?? "Couldn't create the session. Please try again.");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleEndSession = async (id: number) => {
+    setEndingId(id);
+    try {
+      await endSession(id);
+      await loadSessions();
+    } catch {
+      setError("Couldn't end that session. Please try again.");
+    } finally {
+      setEndingId(null);
+    }
+  };
+
+  const openRoster = async (session: SessionDto) => {
+    setRosterSession(session);
+    setRosterError(null);
+    setAddSearch("");
+    setRosterLoading(true);
+    try {
+      const [players, roster, sessionLeaders] = await Promise.all([
+        allPlayers.length > 0 ? Promise.resolve(allPlayers) : getAllPlayers(),
+        getSessionPlayers(session.sessionId),
+        getSessionLeaderboard(session.sessionId),
+      ]);
+      setAllPlayers(players);
+      setRosterPlayers(roster);
+      setLeaders(sessionLeaders);
+    } catch {
+      setRosterError("Couldn't load the roster for this session.");
+    } finally {
+      setRosterLoading(false);
+    }
+  };
+
+  const closeRoster = () => {
+    setRosterSession(null);
+    setRosterPlayers([]);
+    setRosterError(null);
+  };
+
+  const availablePlayers = useMemo(() => {
+    const rosterIds = new Set(rosterPlayers.map((rp) => rp.playerId));
+    const pool = allPlayers.filter((p) => !rosterIds.has(p.playerId));
+    const q = addSearch.trim().toLowerCase();
+    if (!q) return pool;
+    return pool.filter((p) => p.fullName.toLowerCase().includes(q));
+  }, [allPlayers, rosterPlayers, addSearch]);
+
+  const handleAddToRoster = async (playerId: number) => {
+    if (!rosterSession) return;
+    setPendingPlayerId(playerId);
+    setRosterError(null);
+    try {
+      const added = await addPlayerToSession(rosterSession.sessionId, playerId);
+      setRosterPlayers((prev) => [...prev, added]);
+    } catch {
+      setRosterError("Couldn't add that player. They may already be in this session.");
+    } finally {
+      setPendingPlayerId(null);
+    }
+  };
+
+  const handleRemoveFromRoster = async (playerId: number) => {
+    if (!rosterSession) return;
+    setPendingPlayerId(playerId);
+    setRosterError(null);
+    try {
+      await removePlayerFromSession(rosterSession.sessionId, playerId);
+      setRosterPlayers((prev) => prev.filter((rp) => rp.playerId !== playerId));
+    } catch {
+      setRosterError("Couldn't remove that player. Please try again.");
+    } finally {
+      setPendingPlayerId(null);
+    }
+  };
+
+  const formatDate = (iso: string) => {
+    const d = new Date(iso);
+    return {
+      month: d.toLocaleDateString(undefined, { month: "short" }),
+      day: d.getDate(),
+    };
+  };
+
   return (
     <AppShell>
       <PageHeader
@@ -16,49 +196,290 @@ export default function SessionsPage() {
         title="Court sessions"
         subtitle="Schedule, run, and archive your play sessions."
         action={
-          <button className="shrink-0 rounded-full bg-brand px-4 py-2 text-sm font-semibold text-zinc-900 ring-1 ring-black/10 shadow-lg shadow-brand/30 transition-transform hover:bg-brand-dark hover:text-white active:scale-[0.97]">
-            + New Session
-          </button>
+          <Button
+            onClick={() => setDialogOpen(true)}
+            className="shrink-0 rounded-full bg-brand text-zinc-900 shadow-lg shadow-brand/30 hover:bg-brand-dark hover:text-white"
+          >
+            <Plus className="size-4" /> New Session
+          </Button>
         }
       />
-      <div className="grid gap-4 sm:gap-6">
-        {SESSIONS.map((s) => (
-          <Panel key={s.name} className="transition-transform hover:scale-[1.005]">
-            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4">
-              <div className="flex min-w-0 items-center gap-4">
-                <div className="grid size-14 shrink-0 place-items-center rounded-2xl bg-brand-soft text-brand-dark">
-                  <div className="text-center">
-                    <p className="text-[9px] font-bold uppercase leading-none">{s.date.split(" ")[0]}</p>
-                    <p className="text-lg font-bold leading-none">{s.date.split(" ")[1].replace(",", "")}</p>
+
+      {loading ? (
+        <div className="flex items-center gap-2 text-sm text-zinc-400">
+          <Loader2 className="size-4 animate-spin" /> Loading sessions…
+        </div>
+      ) : error ? (
+        <p className="text-sm text-red-500">{error}</p>
+      ) : sessions.length === 0 ? (
+        <Panel className="text-center text-sm text-zinc-400">
+          No sessions yet. Create one to get started.
+        </Panel>
+      ) : (
+        <div className="grid gap-4 sm:gap-6">
+          {sessions.map((s) => {
+            const { month, day } = formatDate(s.sessionDate);
+            const isLive = s.status === "Active";
+
+            return (
+              <Panel key={s.sessionId} className="transition-transform hover:scale-[1.005]">
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4">
+                  <div className="flex min-w-0 items-center gap-4">
+                    <div className="grid size-14 shrink-0 place-items-center rounded-2xl bg-brand-soft text-brand-dark">
+                      <div className="text-center">
+                        <p className="text-[9px] font-bold uppercase leading-none">{month}</p>
+                        <p className="text-lg font-bold leading-none">{day}</p>
+                      </div>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h3 className="truncate text-base font-semibold">{s.sessionName}</h3>
+                        {isLive ? (
+                          <span className="pulse-dot rounded-full bg-red-500 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
+                            Live
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-zinc-500">
+                            Completed
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-0.5 text-xs text-zinc-500">
+                        {s.startTime.slice(0, 5)}–{s.endTime.slice(0, 5)} • {s.numberOfCourts} courts • {s.totalMatchesPlayed} game
+                        {s.totalMatchesPlayed === 1 ? "" : "s"} played
+                      </p>
+                    </div>
                   </div>
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h3 className="truncate text-base font-semibold">{s.name}</h3>
-                    {s.status === "live" && (
-                      <span className="pulse-dot rounded-full bg-red-500 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
-                        Live
-                      </span>
+                  <div className="hidden shrink-0 items-center gap-3 sm:flex">
+                    <Button size="sm" variant="outline" onClick={() => openRoster(s)} className="rounded-full">
+                      <Users className="size-3.5" /> Manage Players
+                    </Button>
+                    {isLive && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={endingId === s.sessionId}
+                        onClick={() => handleEndSession(s.sessionId)}
+                        className="rounded-full"
+                      >
+                        {endingId === s.sessionId ? "Ending…" : "End Session"}
+                      </Button>
                     )}
                   </div>
-                  <p className="mt-0.5 text-xs text-zinc-500">
-                    {s.players} players • {s.matches} matches played
-                  </p>
                 </div>
+              </Panel>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Create session dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Start a new session</DialogTitle>
+            <DialogDescription>Set the date, time, and courts. You can adjust the roster after.</DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleCreate} className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="sessionName">Session name</Label>
+              <Input
+                id="sessionName"
+                required
+                value={form.sessionName}
+                onChange={(e) => setForm((f) => ({ ...f, sessionName: e.target.value }))}
+                placeholder="Morning Open Play"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="sessionDate">Date</Label>
+              <Input
+                id="sessionDate"
+                type="date"
+                required
+                value={form.sessionDate}
+                onChange={(e) => setForm((f) => ({ ...f, sessionDate: e.target.value }))}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="startTime">Start time</Label>
+                <Input
+                  id="startTime"
+                  type="time"
+                  required
+                  value={form.startTime}
+                  onChange={(e) => setForm((f) => ({ ...f, startTime: e.target.value }))}
+                />
               </div>
-              <div className="hidden shrink-0 items-center gap-6 sm:flex">
-                <div className="text-right">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">Matches</p>
-                  <p className="text-lg font-bold tabular-nums">{s.matches}</p>
-                </div>
-                <button className="rounded-full bg-ink px-4 py-1.5 text-xs font-semibold text-white transition-transform hover:bg-zinc-800 active:scale-[0.97]">
-                  Open
-                </button>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="endTime">End time</Label>
+                <Input
+                  id="endTime"
+                  type="time"
+                  required
+                  value={form.endTime}
+                  onChange={(e) => setForm((f) => ({ ...f, endTime: e.target.value }))}
+                />
               </div>
             </div>
-          </Panel>
-        ))}
-      </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="numberOfCourts">Number of courts</Label>
+              <Input
+                id="numberOfCourts"
+                type="number"
+                min={1}
+                required
+                value={form.numberOfCourts}
+                onChange={(e) => setForm((f) => ({ ...f, numberOfCourts: Number(e.target.value) }))}
+              />
+            </div>
+
+            {formError && <p className="text-sm text-red-500">{formError}</p>}
+
+            <DialogFooter>
+              <Button type="submit" disabled={creating} className="w-full">
+                {creating ? "Creating…" : "Create session"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Manage players dialog */}
+      <Dialog open={!!rosterSession} onOpenChange={(open) => !open && closeRoster()}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Players — {rosterSession?.sessionName}</DialogTitle>
+            <DialogDescription>
+              Add or remove players from this session. Pair-locking is on the Queue page.
+            </DialogDescription>
+          </DialogHeader>
+
+          {rosterLoading ? (
+            <div className="flex items-center gap-2 py-6 text-sm text-zinc-400">
+              <Loader2 className="size-4 animate-spin" /> Loading roster…
+            </div>
+          ) : (
+            <div className="flex flex-col gap-5">
+              {rosterError && <p className="text-sm text-red-500">{rosterError}</p>}
+
+              {/* Mini leaderboard for this session — top 3 only */}
+              <div>
+                <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                  <Trophy className="size-3.5" /> Leading this session
+                </p>
+                {leaders.length === 0 ? (
+                  <p className="text-sm text-zinc-400">No results yet — play a few matches to populate this.</p>
+                ) : (
+                  <div className="flex flex-col gap-1">
+                    {leaders.slice(0, 3).map((l) => (
+                      <div
+                        key={l.playerId}
+                        className="flex items-center justify-between rounded-lg bg-zinc-50 px-3 py-1.5 text-sm"
+                      >
+                        <span className="flex items-center gap-2">
+                          <span
+                            className={`grid size-6 place-items-center rounded-full text-[10px] font-bold text-zinc-900 ${medalTone(l.rank)}`}
+                          >
+                            {l.rank <= 3 ? <Medal className="size-3.5" /> : l.rank}
+                          </span>
+                          {l.fullName}
+                        </span>
+                        <span className="tabular-nums text-zinc-500">
+                          {l.wins}-{l.losses} • {l.winPercentage.toFixed(0)}%
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                  In this session ({rosterPlayers.length})
+                </p>
+                {rosterPlayers.length === 0 ? (
+                  <p className="text-sm text-zinc-400">No players added yet.</p>
+                ) : (
+                  <div className="flex flex-col gap-1.5">
+                    {rosterPlayers.map((rp) => (
+                      <div key={rp.playerId} className="flex items-center justify-between rounded-xl bg-zinc-50 px-3 py-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">{rp.fullName}</p>
+                          <p className="text-xs text-zinc-400">
+                            {rp.skillCategory} • {rp.gamesPlayedInSession} game
+                            {rp.gamesPlayedInSession === 1 ? "" : "s"} played
+                            {rp.lockedPartnerName ? ` • 🔒 paired with ${rp.lockedPartnerName}` : ""}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => handleRemoveFromRoster(rp.playerId)}
+                          disabled={pendingPlayerId === rp.playerId}
+                          className="grid size-7 shrink-0 place-items-center rounded-full text-zinc-400 hover:bg-red-50 hover:text-red-500 disabled:opacity-50"
+                          aria-label={`Remove ${rp.fullName}`}
+                        >
+                          <X className="size-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                    Add from roster ({availablePlayers.length})
+                  </p>
+                </div>
+                <Input
+                  value={addSearch}
+                  onChange={(e) => setAddSearch(e.target.value)}
+                  placeholder="Search players to add…"
+                  className="mb-2"
+                />
+                {availablePlayers.length === 0 ? (
+                  <p className="text-sm text-zinc-400">
+                    {allPlayers.length === 0
+                      ? "You don't have any players yet."
+                      : addSearch
+                        ? "No players match your search."
+                        : "Everyone is already in this session."}
+                  </p>
+                ) : (
+                  <div className="flex max-h-56 flex-col gap-1.5 overflow-y-auto">
+                    {availablePlayers.map((p) => (
+                      <div
+                        key={p.playerId}
+                        className="flex items-center justify-between rounded-xl px-3 py-2 ring-1 ring-zinc-100"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">{p.fullName}</p>
+                          <p className="text-xs text-zinc-400">{p.skillCategory}</p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={pendingPlayerId === p.playerId}
+                          onClick={() => handleAddToRoster(p.playerId)}
+                          className="rounded-full"
+                        >
+                          {pendingPlayerId === p.playerId ? "Adding…" : "Add"}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }

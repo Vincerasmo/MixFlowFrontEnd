@@ -13,3 +13,10 @@ export interface LeaderboardDto {
   sessionLeaders: LeaderboardPlayerDto[];
   overallLeaders: LeaderboardPlayerDto[];
 }
+
+// Response shape of GET /leaderboard/session/active
+export interface ActiveSessionLeaderboardDto {
+  sessionId: number;
+  sessionName: string;
+  leaderboard: LeaderboardPlayerDto[];
+}

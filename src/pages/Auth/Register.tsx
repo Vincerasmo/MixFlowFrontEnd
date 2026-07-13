@@ -102,7 +102,7 @@ export default function SignUpPage() {
   };
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-brand-soft via-zinc-50 to-white font-sans text-zinc-900">
+    <div className="relative min-h-screen overflow-hidden bg-linear-to-br from-brand-soft via-zinc-50 to-white font-sans text-zinc-900">
       <PickleballIcon className="absolute -left-16 -top-16 size-72 opacity-30" />
       <PickleballIcon className="absolute -right-24 top-1/2 size-96 opacity-20" />
       <PickleballIcon className="absolute bottom-[-4rem] left-1/3 size-56 opacity-25" />

@@ -1,12 +1,13 @@
 export interface SessionDto {
   sessionId: number;
   sessionName: string;
-  sessionDate: string; // ISO date string
-  startTime: string; // TimeSpan as serialized by the backend, e.g. "18:00:00"
+  sessionDate: string;
+  startTime: string;
   endTime: string;
   numberOfCourts: number;
   status: string;
   createdAt: string;
+  totalMatchesPlayed: number;
 }
 
 export interface CreateSessionPayload {
@@ -32,6 +33,13 @@ export interface SessionPlayerDto {
   benchReason?: string | null;
   checkInTime?: string | null;
   benchedAt?: string | null;
+
+  // How many matches this player has played within THIS session (not lifetime).
+  gamesPlayedInSession: number;
+
+  // Lock-pair info, if this player has locked in with a partner for this session.
+  lockedPartnerId?: number | null;
+  lockedPartnerName?: string | null;
 }
 
 export interface BenchPlayerPayload {

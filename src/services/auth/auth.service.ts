@@ -20,8 +20,8 @@ export async function signupWithGoogle(payload: GoogleLoginPayload): Promise<Aut
   return data;
 }
 
-// Dev-only convenience auth — no password, no verification. The backend
-// rejects these routes outside its Development environment.
+// Convenience auth by email only — no password, no verification. Works in every
+// environment now that the Development-only gate has been removed on the backend.
 export async function loginWithEmail(payload: EmailLoginPayload): Promise<AuthResponseDto> {
   const { data } = await apiClient.post<AuthResponseDto>("/auth/email-login", payload);
   setSession(data.token, data.organizer);

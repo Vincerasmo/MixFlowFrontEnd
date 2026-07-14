@@ -1,6 +1,3 @@
 {
-  "rewrites": [
-    { "source": "/auth/:path*", "destination": "https://mixflow.runasp.net/api/auth/:path*" },
-    { "source": "/api/:path*", "destination": "https://mixflow.runasp.net/api/:path*" }
-  ]
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }

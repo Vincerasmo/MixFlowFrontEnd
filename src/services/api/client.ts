@@ -1,7 +1,7 @@
 import axios, { type AxiosError } from "axios";
 import { getToken, clearSession } from "../auth/session.storage";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL
+const API_BASE_URL = import.meta.env.VITE_API_URL || "https://mixflow.runasp.net";
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -40,3 +40,5 @@ apiClient.interceptors.response.use(
     return Promise.reject({ status, message } satisfies NormalizedApiError);
   }
 );
+
+export default apiClient;

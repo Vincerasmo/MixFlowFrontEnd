@@ -5218,7 +5218,10 @@ declare global {
 
 <file path="vercel.json">
 {
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "rewrites": [
+    { "source": "/auth/(.*)", "destination": "https://mixflow.runasp.net/api/auth/$1" },
+    { "source": "/api/(.*)", "destination": "https://mixflow.runasp.net/api/$1" }
+  ]
 }
 </file>
 
@@ -6680,37 +6683,6 @@ export interface SwapWithQueuePayload {
 }
 </file>
 
-<file path=".gitignore">
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-
-node_modules
-dist
-dist-ssr
-*.local
-
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-
-.env
-.env.local
-.env.production
-</file>
-
 <file path="src/components/app-shell.tsx">
 import { Link, useLocation } from "react-router-dom";
 import { type ReactNode } from "react";
@@ -7753,6 +7725,37 @@ apiClient.interceptors.response.use(
     return Promise.reject({ status, message } satisfies NormalizedApiError);
   }
 );
+</file>
+
+<file path=".gitignore">
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+.env
+.env.local
+.env.Production
 </file>
 
 <file path="src/pages/Dashboard.tsx">

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Sparkles, Users, Lock, Unlock, Swords } from "lucide-react";
+import { Loader2, Shuffle, Lock, Unlock, ArrowLeftRight, Repeat, X, Pencil } from "lucide-react";
 import { AppShell, PageHeader, Panel } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
@@ -9,20 +9,22 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogFooter,
 } from "@/components/ui/dialog";
 import { getMySessions, getSessionPlayers, lockPair, unlockPair } from "@/services/sessions";
 import {
   getQueue,
-  enqueuePlayer,
   autoMatch,
   getActiveMatches,
   benchPlayer,
   returnToQueue,
-  manualMixCourt,
+  getNextUpMatches,
+  swapMatchTeams,
+  swapMatchWithQueue,
 } from "@/services/matches";
 import type { SessionDto, SessionPlayerDto } from "@/services/sessions";
 import type { QueueEntryDto, MatchDto } from "@/services/matches";
+
+
 
 export default function QueuePage() {
   const [activeSessions, setActiveSessions] = useState<SessionDto[]>([]);
@@ -32,21 +34,20 @@ export default function QueuePage() {
   const [sessionPlayers, setSessionPlayers] = useState<SessionPlayerDto[]>([]);
   const [queue, setQueue] = useState<QueueEntryDto[]>([]);
   const [activeMatches, setActiveMatches] = useState<MatchDto[]>([]);
+  const [nextUpMatches, setNextUpMatches] = useState<MatchDto[]>([]);
   const [initialLoading, setInitialLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [pendingPlayerId, setPendingPlayerId] = useState<number | null>(null);
   const [autoMixing, setAutoMixing] = useState(false);
-
-  // Lock-pair flow: pick a player, then pick who to pair them with.
   const [lockingPlayerId, setLockingPlayerId] = useState<number | null>(null);
 
-  const [manualMatchOpen, setManualMatchOpen] = useState(false);
-
-  const selectedSession = useMemo(
-    () => activeSessions.find((s) => s.sessionId === selectedSessionId) ?? null,
-    [activeSessions, selectedSessionId],
-  );
+  // Editing a "Next Up" match
+  const [editingMatch, setEditingMatch] = useState<MatchDto | null>(null);
+  const [selectedForSwap, setSelectedForSwap] = useState<number | null>(null);
+  const [replacingPlayerId, setReplacingPlayerId] = useState<number | null>(null);
+  const [swapBusy, setSwapBusy] = useState(false);
+  const [swapError, setSwapError] = useState<string | null>(null);
 
   useEffect(() => {
     getMySessions()
@@ -59,20 +60,20 @@ export default function QueuePage() {
       .finally(() => setSessionsLoading(false));
   }, []);
 
-  // `silent` skips the loading spinner — used after actions so the list updates
-  // in place instead of the whole panel blanking out and reappearing.
   const loadSessionData = async (sessionId: number, opts?: { silent?: boolean }) => {
     if (!opts?.silent) setInitialLoading(true);
     setError(null);
     try {
-      const [players, queueData, matches] = await Promise.all([
+      const [players, queueData, matches, nextUp] = await Promise.all([
         getSessionPlayers(sessionId),
         getQueue(sessionId),
         getActiveMatches(sessionId),
+        getNextUpMatches(sessionId),
       ]);
       setSessionPlayers(players);
       setQueue(queueData);
       setActiveMatches(matches);
+      setNextUpMatches(nextUp);
     } catch {
       setError("Couldn't load the queue for this session.");
     } finally {
@@ -84,67 +85,34 @@ export default function QueuePage() {
     if (selectedSessionId !== null) void loadSessionData(selectedSessionId);
   }, [selectedSessionId]);
 
-  // Players currently on a court, derived from the active matches themselves — this is
-  // the only reliable source, since a player mid-match has no "Waiting" queue entry.
+  const benched = useMemo(() => sessionPlayers.filter((sp) => sp.status === "Benched"), [sessionPlayers]);
+
   const inMatchPlayerIds = useMemo(() => {
     const ids = new Set<number>();
     activeMatches.forEach((m) => {
       m.team1.forEach((p) => ids.add(p.playerId));
       m.team2.forEach((p) => ids.add(p.playerId));
     });
-    return ids;
-  }, [activeMatches]);
-
-  const courtByPlayerId = useMemo(() => {
-    const map = new Map<number, number>();
-    activeMatches.forEach((m) => {
-      if (m.courtNumber == null) return;
-      [...m.team1, ...m.team2].forEach((p) => map.set(p.playerId, m.courtNumber!));
+    nextUpMatches.forEach((m) => {
+      m.team1.forEach((p) => ids.add(p.playerId));
+      m.team2.forEach((p) => ids.add(p.playerId));
     });
-    return map;
-  }, [activeMatches]);
-
-  const benched = useMemo(() => sessionPlayers.filter((sp) => sp.status === "Benched"), [sessionPlayers]);
+    return ids;
+  }, [activeMatches, nextUpMatches]);
 
   const inMatchPlayers = useMemo(
     () => sessionPlayers.filter((sp) => inMatchPlayerIds.has(sp.playerId)),
-    [sessionPlayers, inMatchPlayerIds],
+    [sessionPlayers, inMatchPlayerIds]
   );
 
-  // 🐛 FIX: this used to only exclude players already in the Waiting queue, so anyone
-  // currently ON COURT (no Waiting entry, since they're "InMatch") wrongly showed up
-  // here with an "Add to queue" button, even mid-game. Now also excludes in-match players.
-  const availableToQueue = useMemo(() => {
-    const queuedIds = new Set(queue.map((q) => q.playerId));
-    return sessionPlayers.filter(
-      (sp) => sp.status === "CheckedIn" && !queuedIds.has(sp.playerId) && !inMatchPlayerIds.has(sp.playerId),
-    );
-  }, [sessionPlayers, queue, inMatchPlayerIds]);
-
-  const sessionPlayerByPlayerId = useMemo(() => {
-    const map = new Map<number, SessionPlayerDto>();
-    sessionPlayers.forEach((sp) => map.set(sp.playerId, sp));
+  const lockedPartnerByPlayerId = useMemo(() => {
+    const map = new Map<number, string>();
+    sessionPlayers.forEach((sp) => {
+      if (sp.lockedPartnerName) map.set(sp.playerId, sp.lockedPartnerName);
+    });
     return map;
   }, [sessionPlayers]);
 
-  const upNext = queue.slice(0, 4);
-
-  const handleEnqueue = async (playerId: number) => {
-    if (!selectedSessionId) return;
-    setPendingPlayerId(playerId);
-    setError(null);
-    try {
-      await enqueuePlayer(selectedSessionId, playerId);
-      await loadSessionData(selectedSessionId, { silent: true });
-    } catch {
-      setError("Couldn't add that player to the queue.");
-    } finally {
-      setPendingPlayerId(null);
-    }
-  };
-
-  // Benching now replaces "remove" as the queue's only exit action — the backend
-  // already pulls a benched player out of the queue in the same transaction.
   const handleBench = async (playerId: number) => {
     if (!selectedSessionId) return;
     setPendingPlayerId(playerId);
@@ -174,7 +142,7 @@ export default function QueuePage() {
     }
   };
 
-  const handleSmartMix = async () => {
+  const handleAutoMix = async () => {
     if (!selectedSessionId) return;
     setAutoMixing(true);
     setError(null);
@@ -221,11 +189,77 @@ export default function QueuePage() {
     }
   };
 
-  const idleCourts = useMemo(() => {
-    if (!selectedSession) return [];
-    const occupied = new Set(activeMatches.map((m) => m.courtNumber).filter((c): c is number => c != null));
-    return Array.from({ length: selectedSession.numberOfCourts }, (_, i) => i + 1).filter((c) => !occupied.has(c));
-  }, [selectedSession, activeMatches]);
+  const openEdit = (match: MatchDto) => {
+    setEditingMatch(match);
+    setSelectedForSwap(null);
+    setReplacingPlayerId(null);
+    setSwapError(null);
+  };
+
+  const closeEdit = () => {
+    setEditingMatch(null);
+    setSelectedForSwap(null);
+    setReplacingPlayerId(null);
+    setSwapError(null);
+  };
+
+  const applyUpdatedMatch = (updated: MatchDto) => {
+    setEditingMatch(updated);
+    setNextUpMatches((prev) => prev.map((m) => (m.matchId === updated.matchId ? updated : m)));
+  };
+
+  const handlePlayerClickForTeamSwap = async (playerId: number, teamNumber: number) => {
+    if (!selectedSessionId || !editingMatch) return;
+    setReplacingPlayerId(null);
+
+    if (selectedForSwap === null) {
+      setSelectedForSwap(playerId);
+      return;
+    }
+
+    if (selectedForSwap === playerId) {
+      setSelectedForSwap(null);
+      return;
+    }
+
+    const selectedTeam = [...editingMatch.team1, ...editingMatch.team2].find((p) => p.playerId === selectedForSwap)?.teamNumber;
+    if (selectedTeam === teamNumber) {
+      // Same team — just move the selection instead of swapping.
+      setSelectedForSwap(playerId);
+      return;
+    }
+
+    setSwapBusy(true);
+    setSwapError(null);
+    try {
+      const updated = await swapMatchTeams(selectedSessionId, editingMatch.matchId, selectedForSwap, playerId);
+      applyUpdatedMatch(updated);
+      setSelectedForSwap(null);
+    } catch (err) {
+      const apiErr = err as { message?: string };
+      setSwapError(apiErr.message ?? "Couldn't swap those two players.");
+    } finally {
+      setSwapBusy(false);
+    }
+  };
+
+  const handleReplaceFromQueue = async (candidateId: number) => {
+    if (!selectedSessionId || !editingMatch || replacingPlayerId === null) return;
+
+    setSwapBusy(true);
+    setSwapError(null);
+    try {
+      const updated = await swapMatchWithQueue(selectedSessionId, editingMatch.matchId, replacingPlayerId, candidateId);
+      applyUpdatedMatch(updated);
+      setReplacingPlayerId(null);
+      await loadSessionData(selectedSessionId, { silent: true });
+    } catch (err) {
+      const apiErr = err as { message?: string };
+      setSwapError(apiErr.message ?? "Couldn't bring that player in.");
+    } finally {
+      setSwapBusy(false);
+    }
+  };
 
   if (sessionsLoading) {
     return (
@@ -248,30 +282,23 @@ export default function QueuePage() {
     );
   }
 
+  const editingMatchPlayerIds = editingMatch ? [...editingMatch.team1, ...editingMatch.team2].map((p) => p.playerId) : [];
+  const replaceCandidates = queue.filter((q) => !editingMatchPlayerIds.includes(q.playerId));
+
   return (
     <AppShell>
       <PageHeader
         eyebrow="Live Queue"
         title="Player Queue"
-        subtitle="Mix pairs by skill, priority, and locked partners."
+        subtitle="Bench, lock partners, and edit the next matches before they start."
         action={
-          <div className="flex shrink-0 gap-2">
-            <Button
-              variant="outline"
-              disabled={idleCourts.length === 0 || queue.length < 4}
-              onClick={() => setManualMatchOpen(true)}
-              className="rounded-full"
-            >
-              <Swords className="size-4" /> Manual Match
-            </Button>
-            <Button
-              onClick={handleSmartMix}
-              disabled={autoMixing || queue.length < 4}
-              className="rounded-full bg-ink text-white shadow-lg shadow-ink/20 hover:bg-zinc-800"
-            >
-              <Sparkles className="size-4" /> {autoMixing ? "Mixing…" : "Smart Mix"}
-            </Button>
-          </div>
+          <Button
+            onClick={handleAutoMix}
+            disabled={autoMixing || queue.length < 4}
+            className="shrink-0 rounded-full bg-ink text-white shadow-lg shadow-ink/20 hover:bg-zinc-800"
+          >
+            <Shuffle className="size-4" /> {autoMixing ? "Mixing…" : "Auto Mix"}
+          </Button>
         }
       />
 
@@ -303,72 +330,92 @@ export default function QueuePage() {
         </div>
       ) : (
         <div className="grid grid-cols-12 gap-4 sm:gap-6">
-          {/* Up Next — large hero card */}
-          <Panel className="court-lines relative col-span-12 overflow-hidden bg-linear-to-r from-brand to-brand-dark text-white lg:col-span-8">
-            <div className="relative">
-              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/80">Up Next</p>
-              {upNext.length === 0 ? (
-                <p className="mt-4 text-sm text-white/80">No one's in the queue yet.</p>
-              ) : upNext.length < 4 ? (
-                <>
-                  <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2">
-                    {upNext.map((q) => (
-                      <p key={q.queueId} className="text-lg font-bold">
-                        {q.fullName}
-                      </p>
-                    ))}
-                  </div>
-                  <p className="mt-3 text-sm text-white/80">
-                    Need {4 - upNext.length} more queued before this becomes a match.
-                  </p>
-                </>
-              ) : (
-                <div className="mt-4 grid grid-cols-[1fr_auto_1fr] items-center gap-4">
-                  <div>
-                    <p className="truncate text-base font-bold sm:text-lg">{upNext[0].fullName}</p>
-                    <p className="truncate text-base font-bold sm:text-lg">{upNext[1].fullName}</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-white/70">vs</p>
-                    <div className="mx-auto mt-1 size-8 rounded-full border-2 border-dashed border-white/40" />
-                  </div>
-                  <div className="text-right">
-                    <p className="truncate text-base font-bold sm:text-lg">{upNext[2].fullName}</p>
-                    <p className="truncate text-base font-bold sm:text-lg">{upNext[3].fullName}</p>
+          {/* Next Up — 2 real, editable prepared matches. Same card treatment as the
+              live match cards on the Matches page, for visual consistency. */}
+          <div className="col-span-12 grid grid-cols-1 items-start gap-4 sm:grid-cols-2 sm:gap-6">
+            {[0, 1].map((slot) => {
+              const match = nextUpMatches[slot];
+              return match ? (
+                <div
+                  key={slot}
+                  className="relative cursor-pointer overflow-hidden rounded-[20px] bg-[#8ba668] p-4 text-white ring-1 ring-black/10 transition-transform hover:scale-[1.01]"
+                >
+                  <div className="relative">
+                    <div className="mb-4 flex items-center justify-between">
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-white">Next Up</p>
+                      <Button
+                        size="sm"
+                        onClick={() => openEdit(match)}
+                        aria-label="Edit this match"
+                        className="size-7 rounded-full bg-white p-0 text-zinc-900 hover:bg-zinc-100"
+                      >
+                        <Pencil className="size-3.5" />
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-[1fr_56px_1fr] overflow-hidden rounded-xl border-[4px] border-white">
+                      <div className="grid grid-rows-2 divide-y-[3px] divide-white bg-[#4a7a9c]">
+                        {match.team1.map((p) => (
+                          <div key={p.playerId} className="flex items-center justify-center p-2">
+                            <p className="truncate text-sm font-bold text-white">{p.fullName}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="relative bg-[#5ec2dd]">
+                        <div className="absolute inset-y-0 left-1/2 w-[2px] -translate-x-1/2 bg-zinc-900" />
+                      </div>
+                      <div className="grid grid-rows-2 divide-y-[3px] divide-white bg-[#4a7a9c]">
+                        {match.team2.map((p) => (
+                          <div key={p.playerId} className="flex items-center justify-center p-2">
+                            <p className="truncate text-sm font-bold text-white">{p.fullName}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 </div>
-              )}
-            </div>
-          </Panel>
+              ) : (
+                <Panel
+                  key={slot}
+                  className="flex flex-col items-center justify-center border-2 border-dashed border-zinc-200 bg-zinc-50 p-6 text-center"
+                >
+                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400">Next Up</p>
+                  <p className="mt-2 text-sm text-zinc-500">
+                    {queue.length < 4 ? `Need ${4 - queue.length} more queued` : "Preparing…"}
+                  </p>
+                </Panel>
+              );
+            })}
+          </div>
 
           <Panel className="col-span-12 lg:col-span-4">
             <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-dark">Waiting</p>
             <p className="mt-2 text-5xl font-bold tabular-nums">{queue.length}</p>
-            <p className="mt-1 text-xs text-zinc-500">
-              {queue.length < 4 ? `Need ${4 - queue.length} more to mix` : "Ready to mix"}
-            </p>
             <div className="mt-6 space-y-2">
-              <StatRow label="Available" value={String(availableToQueue.length)} />
-              <StatRow label="In match" value={String(inMatchPlayers.length)} />
+              <StatRow label="In a match" value={String(inMatchPlayers.length)} />
               <StatRow label="Benched" value={String(benched.length)} />
+              <StatRow label="Active courts" value={String(activeMatches.length)} />
             </div>
           </Panel>
 
-          {/* Queue + Bench, side by side */}
-          <Panel className="col-span-12 lg:col-span-6">
-            <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold">Queue</h2>
+          <Panel className="col-span-12 lg:col-span-8">
+            <h2 className="mb-4 text-sm font-semibold">Queue</h2>
             {queue.length === 0 ? (
-              <p className="text-sm text-zinc-400">No one's in the queue yet — add players below.</p>
+              <p className="text-sm text-zinc-400">No one's in the queue yet.</p>
             ) : (
               <div className="divide-y divide-zinc-100">
                 {queue.map((q, i) => {
-                  const sp = sessionPlayerByPlayerId.get(q.playerId);
                   const isPicking = lockingPlayerId !== null;
                   const isPickingThis = lockingPlayerId === q.playerId;
-                  const isPickTarget = isPicking && !isPickingThis && !sp?.lockedPartnerId;
+                  const alreadyLocked = lockedPartnerByPlayerId.has(q.playerId);
+                  const isPickTarget = isPicking && !isPickingThis && !alreadyLocked;
 
                   return (
-                    <div key={q.queueId} className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-3 py-3">
+                    <div
+                      key={q.queueId}
+                      className={`grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-2 py-3 ${
+                        isPickingThis ? "rounded-lg bg-brand-soft px-2" : ""
+                      }`}
+                    >
                       <div className="grid size-8 shrink-0 place-items-center rounded-full bg-brand-soft text-xs font-bold text-brand-dark">
                         {q.position ?? i + 1}
                       </div>
@@ -376,16 +423,15 @@ export default function QueuePage() {
                         <p className="truncate text-sm font-semibold">{q.fullName}</p>
                         <p className="text-xs text-zinc-400">
                           {q.skillCategory} • Rating {Number(q.skillLevel).toFixed(1)}
-                          {sp?.lockedPartnerName ? ` • 🔒 with ${sp.lockedPartnerName}` : ""}
+                          {alreadyLocked ? ` • 🔒 with ${lockedPartnerByPlayerId.get(q.playerId)}` : ""}
                         </p>
                       </div>
 
-                      {sp?.lockedPartnerId ? (
+                      {alreadyLocked ? (
                         <button
                           onClick={() => handleUnlock(q.playerId)}
                           disabled={pendingPlayerId === q.playerId}
                           className="grid size-8 shrink-0 place-items-center rounded-full text-zinc-400 hover:bg-amber-50 hover:text-amber-600 disabled:opacity-50"
-                          aria-label={`Unlock ${q.fullName}`}
                           title="Unlock pair"
                         >
                           <Unlock className="size-3.5" />
@@ -397,7 +443,7 @@ export default function QueuePage() {
                           onClick={() => handlePairWith(q.playerId)}
                           className="h-8 shrink-0 rounded-full px-2.5 text-xs"
                         >
-                          Pair here
+                          Pair
                         </Button>
                       ) : (
                         <button
@@ -407,7 +453,6 @@ export default function QueuePage() {
                               ? "bg-brand text-zinc-900"
                               : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
                           }`}
-                          aria-label={`Lock ${q.fullName} with a partner`}
                           title="Lock with a partner"
                         >
                           <Lock className="size-3.5" />
@@ -430,17 +475,17 @@ export default function QueuePage() {
             )}
             {lockingPlayerId !== null && (
               <p className="mt-2 text-xs text-zinc-400">
-                Pick who to pair them with, or click the lock icon again to cancel.
+                Tap "Pair" on another queued player, or the lock icon again to cancel.
               </p>
             )}
           </Panel>
 
-          <Panel className="col-span-12 lg:col-span-6">
+          <Panel className="col-span-12">
             <h2 className="mb-4 text-sm font-semibold">On the bench</h2>
             {benched.length === 0 ? (
               <p className="text-sm text-zinc-400">No one's benched.</p>
             ) : (
-              <div className="space-y-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {benched.map((sp) => (
                   <div
                     key={sp.playerId}
@@ -464,56 +509,14 @@ export default function QueuePage() {
             )}
           </Panel>
 
-          {/* Players currently on court — informational, no action. This used to be
-              lumped into "checked in, not queued" below, which was misleading since
-              these players are busy playing, not idle. */}
           {inMatchPlayers.length > 0 && (
             <Panel className="col-span-12">
-              <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold">
-                <Swords className="size-4" /> In Match — Players ({inMatchPlayers.length})
-              </h2>
+              <h2 className="mb-4 text-sm font-semibold">Players — In a Match ({inMatchPlayers.length})</h2>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {inMatchPlayers.map((sp) => (
-                  <div
-                    key={sp.playerId}
-                    className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-xl bg-zinc-50 px-3 py-2"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{sp.fullName}</p>
-                      <p className="text-xs text-zinc-400">{sp.skillCategory}</p>
-                    </div>
-                    <span className="shrink-0 rounded-full bg-brand-soft px-2 py-0.5 text-[10px] font-bold uppercase text-brand-dark">
-                      Court {courtByPlayerId.get(sp.playerId) ?? "?"}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </Panel>
-          )}
-
-          {availableToQueue.length > 0 && (
-            <Panel className="col-span-12">
-              <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold">
-                <Users className="size-4" /> Checked in — Available ({availableToQueue.length})
-              </h2>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {availableToQueue.map((sp) => (
-                  <div
-                    key={sp.playerId}
-                    className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-xl px-3 py-2 ring-1 ring-zinc-100"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{sp.fullName}</p>
-                      <p className="text-xs text-zinc-400">{sp.skillCategory}</p>
-                    </div>
-                    <Button
-                      size="sm"
-                      disabled={pendingPlayerId === sp.playerId}
-                      onClick={() => handleEnqueue(sp.playerId)}
-                      className="shrink-0 rounded-full"
-                    >
-                      {pendingPlayerId === sp.playerId ? "…" : "Add to queue"}
-                    </Button>
+                  <div key={sp.playerId} className="rounded-xl px-3 py-2 ring-1 ring-zinc-100">
+                    <p className="truncate text-sm font-medium">{sp.fullName}</p>
+                    <p className="text-xs text-zinc-400">{sp.skillCategory}</p>
                   </div>
                 ))}
               </div>
@@ -522,19 +525,94 @@ export default function QueuePage() {
         </div>
       )}
 
-      {selectedSessionId && (
-        <ManualMatchDialog
-          open={manualMatchOpen}
-          sessionId={selectedSessionId}
-          queue={queue}
-          idleCourts={idleCourts}
-          onClose={() => setManualMatchOpen(false)}
-          onCreated={() => {
-            setManualMatchOpen(false);
-            void loadSessionData(selectedSessionId, { silent: true });
-          }}
-        />
-      )}
+      <Dialog open={!!editingMatch} onOpenChange={(o) => !o && closeEdit()}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit next match</DialogTitle>
+            <DialogDescription>
+              Tap two players on opposite teams to swap sides, or tap <Repeat className="inline size-3" /> to bring
+              in someone from the queue instead.
+            </DialogDescription>
+          </DialogHeader>
+
+          {editingMatch && (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                {[1, 2].map((teamNumber) => (
+                  <div key={teamNumber}>
+                    <p className="mb-2 text-center text-xs font-bold uppercase tracking-wider text-zinc-400">
+                      Team {teamNumber}
+                    </p>
+                    <div className="flex flex-col gap-1.5">
+                      {(teamNumber === 1 ? editingMatch.team1 : editingMatch.team2).map((p) => (
+                        <div
+                          key={p.playerId}
+                          className={`flex items-center justify-between rounded-xl px-3 py-2 ${
+                            selectedForSwap === p.playerId ? "bg-brand-soft ring-1 ring-brand" : "bg-zinc-50"
+                          }`}
+                        >
+                          <button
+                            onClick={() => handlePlayerClickForTeamSwap(p.playerId, teamNumber)}
+                            disabled={swapBusy}
+                            className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-sm font-medium disabled:opacity-50"
+                          >
+                            <ArrowLeftRight className="size-3 shrink-0 text-zinc-400" />
+                            <span className="truncate">{p.fullName}</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              setReplacingPlayerId(p.playerId);
+                              setSelectedForSwap(null);
+                            }}
+                            disabled={swapBusy}
+                            className={`grid size-6 shrink-0 place-items-center rounded-full disabled:opacity-50 ${
+                              replacingPlayerId === p.playerId
+                                ? "bg-ink text-white"
+                                : "text-zinc-400 hover:bg-zinc-200"
+                            }`}
+                            title="Replace from queue"
+                          >
+                            <Repeat className="size-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {replacingPlayerId !== null && (
+                <div className="mt-4 rounded-xl bg-zinc-50 p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className="text-xs font-bold uppercase tracking-wider text-zinc-400">Bring in from queue</p>
+                    <button onClick={() => setReplacingPlayerId(null)} className="text-zinc-400 hover:text-zinc-600">
+                      <X className="size-3.5" />
+                    </button>
+                  </div>
+                  {replaceCandidates.length === 0 ? (
+                    <p className="text-sm text-zinc-400">No one else is waiting in the queue.</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {replaceCandidates.map((c) => (
+                        <button
+                          key={c.queueId}
+                          disabled={swapBusy}
+                          onClick={() => handleReplaceFromQueue(c.playerId)}
+                          className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-zinc-700 ring-1 ring-zinc-200 hover:bg-zinc-100 disabled:opacity-50"
+                        >
+                          {c.fullName}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {swapError && <p className="mt-3 text-sm text-red-500">{swapError}</p>}
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }
@@ -545,149 +623,5 @@ function StatRow({ label, value }: { label: string; value: string }) {
       <p className="truncate text-xs text-zinc-500">{label}</p>
       <p className="shrink-0 text-sm font-bold tabular-nums">{value}</p>
     </div>
-  );
-}
-
-function ManualMatchDialog({
-  open,
-  sessionId,
-  queue,
-  idleCourts,
-  onClose,
-  onCreated,
-}: {
-  open: boolean;
-  sessionId: number;
-  queue: QueueEntryDto[];
-  idleCourts: number[];
-  onClose: () => void;
-  onCreated: () => void;
-}) {
-  const [courtNumber, setCourtNumber] = useState<number | null>(null);
-  const [team1, setTeam1] = useState<number[]>([]);
-  const [team2, setTeam2] = useState<number[]>([]);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (open) {
-      setCourtNumber(idleCourts[0] ?? null);
-      setTeam1([]);
-      setTeam2([]);
-      setError(null);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
-
-  const cyclePlayer = (playerId: number) => {
-    if (team1.includes(playerId)) {
-      setTeam1((t) => t.filter((id) => id !== playerId));
-      if (team2.length < 2) setTeam2((t) => [...t, playerId]);
-      return;
-    }
-    if (team2.includes(playerId)) {
-      setTeam2((t) => t.filter((id) => id !== playerId));
-      return;
-    }
-    if (team1.length < 2) {
-      setTeam1((t) => [...t, playerId]);
-    }
-  };
-
-  const nameFor = (id: number) => queue.find((q) => q.playerId === id)?.fullName ?? "";
-
-  const handleSubmit = async () => {
-    if (courtNumber === null) {
-      setError("Pick a court for this match.");
-      return;
-    }
-    if (team1.length !== 2 || team2.length !== 2) {
-      setError("Pick exactly 2 players for each team.");
-      return;
-    }
-
-    setSubmitting(true);
-    setError(null);
-    try {
-      await manualMixCourt(sessionId, courtNumber, [
-        { playerId: team1[0], partnerId: team1[1] },
-        { playerId: team2[0], partnerId: team2[1] },
-      ]);
-      onCreated();
-    } catch (err) {
-      const apiErr = err as { message?: string };
-      setError(apiErr.message ?? "Couldn't create that match. Please try again.");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Manual Match</DialogTitle>
-          <DialogDescription>Pick a court, then tap players to build Team 1, then Team 2.</DialogDescription>
-        </DialogHeader>
-
-        <div className="flex flex-col gap-1.5">
-          <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Court</p>
-          <Select
-            value={courtNumber ? String(courtNumber) : undefined}
-            onValueChange={(v) => setCourtNumber(Number(v))}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Select an open court" />
-            </SelectTrigger>
-            <SelectContent>
-              {idleCourts.map((c) => (
-                <SelectItem key={c} value={String(c)}>
-                  Court {c}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4 text-center text-xs font-semibold uppercase tracking-wider text-zinc-400">
-          <p>Team 1 ({team1.length}/2){team1.map((id) => ` • ${nameFor(id)}`)}</p>
-          <p>Team 2 ({team2.length}/2){team2.map((id) => ` • ${nameFor(id)}`)}</p>
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          {queue.map((q) => {
-            const inTeam1 = team1.includes(q.playerId);
-            const inTeam2 = team2.includes(q.playerId);
-            return (
-              <button
-                key={q.queueId}
-                type="button"
-                onClick={() => cyclePlayer(q.playerId)}
-                className={`flex items-center justify-between rounded-xl px-3 py-2 text-left text-sm ${
-                  inTeam1
-                    ? "bg-brand text-zinc-900"
-                    : inTeam2
-                      ? "bg-ink text-white"
-                      : "bg-zinc-50 hover:bg-zinc-100"
-                }`}
-              >
-                <span className="font-medium">{q.fullName}</span>
-                <span className="text-xs opacity-70">
-                  {inTeam1 ? "Team 1" : inTeam2 ? "Team 2" : q.skillCategory}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
-        {error && <p className="text-sm text-red-500">{error}</p>}
-
-        <DialogFooter>
-          <Button onClick={handleSubmit} disabled={submitting} className="w-full">
-            {submitting ? "Creating…" : "Create match"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }

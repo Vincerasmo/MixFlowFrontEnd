@@ -45,9 +45,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-3">
-            <button className="hidden items-center gap-1.5 rounded-full bg-brand px-3 py-1.5 text-xs font-semibold text-zinc-900 ring-1 ring-black/10 transition-transform hover:bg-brand-dark hover:text-white active:scale-[0.97] sm:inline-flex">
-              + New Session
-            </button>
+
             <div className="grid size-9 shrink-0 place-items-center rounded-full bg-linear-to-br from-ball to-brand text-[11px] font-bold text-zinc-900 ring-2 ring-white shadow-sm">
               VC
             </div>

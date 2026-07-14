@@ -36,8 +36,12 @@ export interface RecordMatchResultPayload {
   team2Score: number;
 }
 
-export interface SmartMixPairPayload {
-  playerId: number;
-  partnerId: number;
+export interface SwapMatchTeamsPayload {
+  playerAId: number;
+  playerBId: number;
 }
 
+export interface SwapWithQueuePayload {
+  playerOutId: number;
+  playerInId: number;
+}

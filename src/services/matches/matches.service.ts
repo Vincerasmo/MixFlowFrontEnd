@@ -3,7 +3,6 @@ import type {
   MatchDto,
   QueueEntryDto,
   RecordMatchResultPayload,
-  SmartMixPairPayload,
 } from "./matches.types";
 import type { BenchPlayerPayload, SessionPlayerDto } from "../sessions/sessions.types";
 
@@ -27,6 +26,14 @@ export async function autoMatch(sessionId: number): Promise<void> {
   await apiClient.post("/matches/auto-match", null, { params: { sessionId } });
 }
 
+export async function smartMixCourt(sessionId: number, courtNumber: number): Promise<MatchDto> {
+  const { data } = await apiClient.post<MatchDto>(
+    `/matches/court/${courtNumber}/smart-mix`,
+    null,
+    { params: { sessionId } }
+  );
+  return data;
+}
 
 export async function recordMatchResult(
   sessionId: number,
@@ -56,6 +63,43 @@ export async function getActiveMatches(sessionId: number): Promise<MatchDto[]> {
   return data;
 }
 
+// The prepared, not-yet-started matches (target: 2) — this is what the Queue
+// page's "Next Up" cards render and edit.
+export async function getNextUpMatches(sessionId: number): Promise<MatchDto[]> {
+  const { data } = await apiClient.get<MatchDto[]>("/matches/next-up", {
+    params: { sessionId },
+  });
+  return data;
+}
+
+export async function swapMatchTeams(
+  sessionId: number,
+  matchId: number,
+  playerAId: number,
+  playerBId: number
+): Promise<MatchDto> {
+  const { data } = await apiClient.put<MatchDto>(
+    `/matches/next-up/${matchId}/swap-teams`,
+    { playerAId, playerBId },
+    { params: { sessionId } }
+  );
+  return data;
+}
+
+export async function swapMatchWithQueue(
+  sessionId: number,
+  matchId: number,
+  playerOutId: number,
+  playerInId: number
+): Promise<MatchDto> {
+  const { data } = await apiClient.put<MatchDto>(
+    `/matches/next-up/${matchId}/swap-with-queue`,
+    { playerOutId, playerInId },
+    { params: { sessionId } }
+  );
+  return data;
+}
+
 export async function benchPlayer(sessionId: number, payload: BenchPlayerPayload): Promise<void> {
   await apiClient.post("/matches/bench", payload, { params: { sessionId } });
 }
@@ -75,27 +119,3 @@ export async function getBenchedPlayers(sessionId: number): Promise<SessionPlaye
   });
   return data;
 }
-
-export async function smartMixCourt(sessionId: number, courtNumber: number): Promise<MatchDto> {
-  const { data } = await apiClient.post<MatchDto>(
-    `/matches/court/${courtNumber}/smart-mix`,
-    null,
-    { params: { sessionId } }
-  );
-  return data;
-}
-
-export async function manualMixCourt(
-  sessionId: number,
-  courtNumber: number,
-  pairs: SmartMixPairPayload[]
-): Promise<MatchDto> {
-  const { data } = await apiClient.post<MatchDto>(
-    `/matches/court/${courtNumber}/manual-mix`,
-    { pairs },
-    { params: { sessionId } }
-  );
-  return data;
-}
-
-

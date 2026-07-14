@@ -1,7 +1,7 @@
 import axios, { type AxiosError } from "axios";
 import { getToken, clearSession } from "../auth/session.storage";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "https://mixflow.runasp.net";
+const API_BASE_URL = import.meta.env.VITE_API_URL || "https://mixflow.runasp.net/api";
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,

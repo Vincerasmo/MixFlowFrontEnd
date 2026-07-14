@@ -1,7 +1,10 @@
 import axios, { type AxiosError } from "axios";
 import { getToken, clearSession } from "../auth/session.storage";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL
+// Strip any trailing slash from the configured host, then always append /api —
+// every backend route is mounted under /api (e.g. [Route("api/matches")]).
+const API_HOST = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");
+const API_BASE_URL = `${API_HOST}/api`;
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,

@@ -1,5 +1,5 @@
 import { apiClient } from "../api/client";
-import { setSession } from "./session.storage";
+import { setSession, clearSession } from "./session.storage";
 import type {
   AuthResponseDto,
   EmailLoginPayload,
@@ -37,6 +37,12 @@ export async function signupWithEmail(payload: EmailSignupPayload): Promise<Auth
 export async function getCurrentOrganizer(): Promise<OrganizerDto> {
   const { data } = await apiClient.get<OrganizerDto>("/auth/me");
   return data;
+}
+
+// Clears the stored token/organizer. Purely local — there's no server-side session to
+// invalidate here (auth is a stateless JWT), so logging out is just forgetting it locally.
+export function logout(): void {
+  clearSession();
 }
 
 /**

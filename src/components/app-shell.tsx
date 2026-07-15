@@ -1,6 +1,7 @@
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { type ReactNode } from "react";
 import { PickleballIcon } from "../components/icons/pickleball-icons";
+import { getStoredOrganizer, logout } from "@/services/auth";
 
 const NAV: { label: string; to: string }[] = [
   { label: "Dashboard", to: "/dashboard" },
@@ -11,8 +12,25 @@ const NAV: { label: string; to: string }[] = [
   { label: "Leaderboard", to: "/leaderboard" },
 ];
 
+// "Jeevon Ricafort" -> "JR". Falls back gracefully for single-word or missing names.
+function getInitials(fullName: string | undefined): string {
+  if (!fullName) return "?";
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const organizer = getStoredOrganizer();
+  const initials = getInitials(organizer?.fullName);
+
+  const handleLogout = () => {
+    logout();
+    navigate("/", { replace: true });
+  };
 
   return (
     <div className="min-h-screen bg-zinc-50 font-sans text-zinc-900">
@@ -45,9 +63,32 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-3">
-
-            <div className="grid size-9 shrink-0 place-items-center rounded-full bg-linear-to-br from-ball to-brand text-[11px] font-bold text-zinc-900 ring-2 ring-white shadow-sm">
-              VC
+            <button
+              type="button"
+              onClick={handleLogout}
+              title="Log out"
+              className="rounded-full bg-zinc-100 p-1 text-zinc-500 transition-colors hover:bg-zinc-200 hover:text-zinc-900">
+              <span className="sr-only">Logout</span>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={1.5}
+                stroke="currentColor"
+                className="size-7"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75"
+                />
+              </svg>
+            </button>
+            <div
+              title={organizer?.fullName}
+              className="grid size-9 shrink-0 place-items-center rounded-full bg-linear-to-br from-ball to-brand text-[11px] font-bold text-zinc-900 ring-2 ring-white shadow-sm"
+            >
+              {initials}
             </div>
           </div>
         </div>

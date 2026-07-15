@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Loader2, Shuffle } from "lucide-react";
+import { Loader2, Shuffle, ArrowLeftRight } from "lucide-react";
 import { AppShell, PageHeader, Panel } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
   DialogClose,
 } from "@/components/ui/dialog";
@@ -18,6 +19,7 @@ import {
   getCompletedMatches,
   recordMatchResult,
   smartMixCourt,
+  swapMatchTeams,
   getQueue,
   getNextUpMatches,
 } from "@/services/matches";
@@ -48,6 +50,12 @@ export default function MatchesPage() {
 
   const [scoringMatch, setScoringMatch] = useState<MatchDto | null>(null);
   const [busyCourt, setBusyCourt] = useState<number | null>(null);
+
+  // Swapping two players between teams on a live (in-progress) match
+  const [swappingMatch, setSwappingMatch] = useState<MatchDto | null>(null);
+  const [selectedForSwap, setSelectedForSwap] = useState<number | null>(null);
+  const [swapBusy, setSwapBusy] = useState(false);
+  const [swapError, setSwapError] = useState<string | null>(null);
 
   useEffect(() => {
     getActiveSession()
@@ -93,6 +101,55 @@ export default function MatchesPage() {
       setError(apiErr.message ?? "Couldn't fill this court — there may not be enough players queued.");
     } finally {
       setBusyCourt(null);
+    }
+  };
+
+  const openSwap = (match: MatchDto) => {
+    setSwappingMatch(match);
+    setSelectedForSwap(null);
+    setSwapError(null);
+  };
+
+  const closeSwap = () => {
+    setSwappingMatch(null);
+    setSelectedForSwap(null);
+    setSwapError(null);
+  };
+
+  const handlePlayerClickForSwap = async (playerId: number, teamNumber: number) => {
+    if (!session || !swappingMatch) return;
+
+    if (selectedForSwap === null) {
+      setSelectedForSwap(playerId);
+      return;
+    }
+
+    if (selectedForSwap === playerId) {
+      setSelectedForSwap(null);
+      return;
+    }
+
+    const selectedTeam = [...swappingMatch.team1, ...swappingMatch.team2].find(
+      (p) => p.playerId === selectedForSwap
+    )?.teamNumber;
+    if (selectedTeam === teamNumber) {
+      // Same team — just move the selection instead of swapping.
+      setSelectedForSwap(playerId);
+      return;
+    }
+
+    setSwapBusy(true);
+    setSwapError(null);
+    try {
+      const updated = await swapMatchTeams(session.sessionId, swappingMatch.matchId, selectedForSwap, playerId);
+      setSwappingMatch(updated);
+      setActiveMatches((prev) => prev.map((m) => (m.matchId === updated.matchId ? updated : m)));
+      setSelectedForSwap(null);
+    } catch (err) {
+      const apiErr = err as { message?: string };
+      setSwapError(apiErr.message ?? "Couldn't swap those two players.");
+    } finally {
+      setSwapBusy(false);
     }
   };
 
@@ -155,9 +212,22 @@ export default function MatchesPage() {
                         <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white">
                           Court {courtNumber}
                         </p>
-                        <span className="pulse-dot rounded-full bg-red-500 px-2 py-0.5 text-[9px] font-bold uppercase text-white">
-                          Live
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openSwap(match);
+                            }}
+                            aria-label="Swap teams"
+                            title="Swap teams"
+                            className="grid size-6 place-items-center rounded-full bg-white/20 text-white hover:bg-white/30"
+                          >
+                            <ArrowLeftRight className="size-3.5" />
+                          </button>
+                          <span className="pulse-dot rounded-full bg-red-500 px-2 py-0.5 text-[9px] font-bold uppercase text-white">
+                            Live
+                          </span>
+                        </div>
                       </div>
 
                       {/* Court view: each side split top/bottom, wide light-blue "kitchen" strip with a thin net line down the middle */}
@@ -282,6 +352,52 @@ export default function MatchesPage() {
           void loadMatches(session.sessionId, { silent: true });
         }}
       />
+
+      <Dialog open={!!swappingMatch} onOpenChange={(o) => !o && closeSwap()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Swap teams — Court {swappingMatch?.courtNumber ?? "?"}</DialogTitle>
+            <DialogDescription>Tap two players on opposite teams to swap sides.</DialogDescription>
+          </DialogHeader>
+
+          {swappingMatch && (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                {[1, 2].map((teamNumber) => (
+                  <div key={teamNumber}>
+                    <p className="mb-2 text-center text-xs font-bold uppercase tracking-wider text-zinc-400">
+                      Team {teamNumber}
+                    </p>
+                    <div className="flex flex-col gap-1.5">
+                      {(teamNumber === 1 ? swappingMatch.team1 : swappingMatch.team2).map((p) => (
+                        <button
+                          key={p.playerId}
+                          onClick={() => handlePlayerClickForSwap(p.playerId, teamNumber)}
+                          disabled={swapBusy}
+                          className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-left text-sm font-medium disabled:opacity-50 ${
+                            selectedForSwap === p.playerId ? "bg-brand-soft ring-1 ring-brand" : "bg-zinc-50"
+                          }`}
+                        >
+                          <ArrowLeftRight className="size-3 shrink-0 text-zinc-400" />
+                          <span className="truncate">{p.fullName}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {swapError && <p className="mt-3 text-sm text-red-500">{swapError}</p>}
+            </>
+          )}
+
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">Done</Button>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }

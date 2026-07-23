@@ -114,6 +114,7 @@ src/pages/NotFound.tsx
 src/pages/Players.tsx
 src/pages/Queue.tsx
 src/pages/Sessions.tsx
+src/pages/Watch.tsx
 src/services/api/client.ts
 src/services/auth/auth.service.ts
 src/services/auth/auth.types.ts
@@ -129,6 +130,8 @@ src/services/matches/matches.types.ts
 src/services/players/index.ts
 src/services/players/players.service.ts
 src/services/players/players.types.ts
+src/services/public/index.ts
+src/services/public/public.service.ts
 src/services/sessions/index.ts
 src/services/sessions/sessions.service.ts
 src/services/sessions/sessions.types.ts
@@ -145,6 +148,370 @@ vite.config.ts
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="src/pages/Watch.tsx">
+import { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
+import { Loader2 } from "lucide-react";
+import { PickleballIcon } from "@/components/icons/pickleball-icons";
+import {
+  getPublicSession,
+  getPublicQueue,
+  getPublicActiveMatches,
+  getPublicNextUpMatches,
+  getPublicCompletedMatches,
+  getPublicLeaderboard,
+} from "@/services/public";
+import type { PublicSessionDto } from "@/services/public";
+import type { MatchDto, QueueEntryDto } from "@/services/matches";
+import type { LeaderboardPlayerDto } from "@/services/leaderboard";
+
+const POLL_INTERVAL_MS = 7000;
+
+function initials(name: string) {
+  return name.split(" ").map((n) => n[0]).join("");
+}
+
+export default function WatchPage() {
+  const { sessionId } = useParams<{ sessionId: string }>();
+  const id = Number(sessionId);
+
+  const [session, setSession] = useState<PublicSessionDto | null>(null);
+  const [queue, setQueue] = useState<QueueEntryDto[]>([]);
+  const [activeMatches, setActiveMatches] = useState<MatchDto[]>([]);
+  const [nextUpMatches, setNextUpMatches] = useState<MatchDto[]>([]);
+  const [completedMatches, setCompletedMatches] = useState<MatchDto[]>([]);
+  const [leaders, setLeaders] = useState<LeaderboardPlayerDto[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!id || Number.isNaN(id)) {
+      setError("Invalid session link.");
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const load = async (opts?: { silent?: boolean }) => {
+      if (!opts?.silent) setLoading(true);
+      try {
+        const [s, q, active, nextUp, completed, board] = await Promise.all([
+          getPublicSession(id),
+          getPublicQueue(id),
+          getPublicActiveMatches(id),
+          getPublicNextUpMatches(id),
+          getPublicCompletedMatches(id),
+          getPublicLeaderboard(id),
+        ]);
+        if (cancelled) return;
+        setSession(s);
+        setQueue(q);
+        setActiveMatches(active);
+        setNextUpMatches(nextUp);
+        setCompletedMatches(completed);
+        setLeaders(board);
+        setError(null);
+      } catch {
+        if (!cancelled) setError("Couldn't load this session. The link may be invalid or the session may have ended.");
+      } finally {
+        if (!cancelled && !opts?.silent) setLoading(false);
+      }
+    };
+
+    void load();
+    const interval = setInterval(() => void load({ silent: true }), POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [id]);
+
+  if (loading) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-zinc-50">
+        <div className="flex items-center gap-2 text-sm text-zinc-400">
+          <Loader2 className="size-4 animate-spin" /> Loading…
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !session) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-zinc-50 p-6 text-center">
+        <div>
+          <PickleballIcon className="mx-auto mb-4 size-12" />
+          <p className="text-sm font-medium text-zinc-600">{error ?? "Session not found."}</p>
+        </div>
+      </div>
+    );
+  }
+
+  const matchByCourt = new Map(activeMatches.map((m) => [m.courtNumber, m]));
+  const courts = Array.from({ length: session.numberOfCourts }, (_, i) => i + 1);
+  const inMatchPlayers = activeMatches.flatMap((m) =>
+    [...m.team1, ...m.team2].map((p) => ({ playerId: p.playerId, fullName: p.fullName, courtNumber: m.courtNumber })),
+  );
+
+  return (
+    <div className="min-h-screen bg-zinc-50 pb-16 font-sans text-zinc-900">
+      <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/90 px-4 py-3 backdrop-blur-md sm:px-6">
+        <div className="mx-auto flex max-w-5xl items-center gap-3">
+          <PickleballIcon className="size-7" />
+          <div className="min-w-0">
+            <p className="truncate text-base font-bold">{session.sessionName}</p>
+            <p className="text-xs text-zinc-500">
+              {session.status === "Active" ? "Live now" : "Session ended"} • {session.numberOfCourts} courts
+            </p>
+          </div>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
+        {/* Courts */}
+        <section className="mb-8">
+          <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">On Court</h2>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {courts.map((courtNumber) => {
+              const match = matchByCourt.get(courtNumber);
+              return (
+                <div
+                  key={courtNumber}
+                  className="relative overflow-hidden rounded-[20px] bg-[#8ba668] p-4 text-white ring-1 ring-black/10"
+                >
+                  <div className="mb-3 flex items-center justify-between">
+                    <span className="rounded-full bg-white/90 px-2.5 py-1 text-xs font-black uppercase tracking-[0.15em] text-zinc-900">
+                      Court {courtNumber}
+                    </span>
+                    {match && (
+                      <span className="pulse-dot rounded-full bg-red-600 px-2.5 py-1 text-[10px] font-black uppercase text-white shadow">
+                        Live
+                      </span>
+                    )}
+                  </div>
+
+                  {match ? (
+                    <div className="grid grid-cols-[1fr_56px_1fr] overflow-hidden rounded-xl border-[4px] border-white">
+                      <div className="grid grid-rows-2 divide-y-[3px] divide-white bg-[#4a7a9c]">
+                        {match.team1.map((p) => (
+                          <div key={p.playerId} className="flex items-center justify-center p-2">
+                            <p className="truncate text-sm font-bold text-white">{p.fullName}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="relative bg-[#5ec2dd]">
+                        <div className="absolute inset-y-0 left-1/2 w-[2px] -translate-x-1/2 bg-zinc-900" />
+                      </div>
+                      <div className="grid grid-rows-2 divide-y-[3px] divide-white bg-[#4a7a9c]">
+                        {match.team2.map((p) => (
+                          <div key={p.playerId} className="flex items-center justify-center p-2">
+                            <p className="truncate text-sm font-bold text-white">{p.fullName}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex h-24 items-center justify-center rounded-xl border-4 border-dashed border-white/50 text-sm font-bold text-white/80">
+                      Available
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* Next Up */}
+        <section className="mb-8">
+          <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">Next Up</h2>
+          {nextUpMatches.length === 0 ? (
+            <p className="text-sm text-zinc-400">Nothing prepared yet.</p>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {nextUpMatches.map((match) => (
+                <div
+                  key={match.matchId}
+                  className="relative overflow-hidden rounded-[20px] bg-[#8ba668] p-4 text-white ring-1 ring-black/10"
+                >
+                  <p className="mb-3 text-xs font-black uppercase tracking-[0.2em] text-zinc-900">Next Up</p>
+                  <div className="grid grid-cols-[1fr_56px_1fr] overflow-hidden rounded-xl border-[4px] border-white">
+                    <div className="grid grid-rows-2 divide-y-[3px] divide-white bg-[#4a7a9c]">
+                      {match.team1.map((p) => (
+                        <div key={p.playerId} className="flex items-center justify-center p-2">
+                          <p className="truncate text-sm font-bold text-white">{p.fullName}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="relative bg-[#5ec2dd]">
+                      <div className="absolute inset-y-0 left-1/2 w-[2px] -translate-x-1/2 bg-zinc-900" />
+                    </div>
+                    <div className="grid grid-rows-2 divide-y-[3px] divide-white bg-[#4a7a9c]">
+                      {match.team2.map((p) => (
+                        <div key={p.playerId} className="flex items-center justify-center p-2">
+                          <p className="truncate text-sm font-bold text-white">{p.fullName}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Queue + In Match, side by side */}
+        <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6">
+          <section className="rounded-[20px] bg-white p-5 ring-1 ring-black/5">
+            <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">Queue ({queue.length})</h2>
+            {queue.length === 0 ? (
+              <p className="text-sm text-zinc-400">No one's waiting right now.</p>
+            ) : (
+              <div className="divide-y divide-zinc-100">
+                {queue.map((q, i) => (
+                  <div key={q.queueId} className="flex items-center gap-3 py-2.5">
+                    <span className="grid size-7 shrink-0 place-items-center rounded-full bg-brand-soft text-xs font-bold text-brand-dark">
+                      {q.position ?? i + 1}
+                    </span>
+                    <p className="truncate text-sm font-semibold">{q.fullName}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-[20px] bg-white p-5 ring-1 ring-black/5">
+            <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">
+              In Match — Players ({inMatchPlayers.length})
+            </h2>
+            {inMatchPlayers.length === 0 ? (
+              <p className="text-sm text-zinc-400">No one's playing right now.</p>
+            ) : (
+              <div className="divide-y divide-zinc-100">
+                {inMatchPlayers.map((p) => (
+                  <div key={p.playerId} className="flex items-center justify-between gap-3 py-2.5">
+                    <p className="truncate text-sm font-semibold">{p.fullName}</p>
+                    <span className="shrink-0 rounded-full bg-brand-soft px-2.5 py-0.5 text-[10px] font-bold uppercase text-brand-dark">
+                      Court {p.courtNumber}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+
+        {/* Leaderboard */}
+        <section className="mb-8 rounded-[20px] bg-white p-5 ring-1 ring-black/5">
+          <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">Leaderboard</h2>
+          {leaders.length === 0 ? (
+            <p className="text-sm text-zinc-400">No results yet.</p>
+          ) : (
+            <div className="divide-y divide-zinc-100">
+              {leaders.slice(0, 10).map((l) => (
+                <div key={l.playerId} className="flex items-center justify-between py-2.5">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="grid size-7 shrink-0 place-items-center rounded-full bg-brand-soft text-xs font-bold text-brand-dark">
+                      {l.rank}
+                    </span>
+                    <div className="grid size-8 shrink-0 place-items-center rounded-full bg-linear-to-br from-ball to-brand text-[10px] font-bold text-zinc-900">
+                      {initials(l.fullName)}
+                    </div>
+                    <p className="truncate text-sm font-semibold">{l.fullName}</p>
+                  </div>
+                  <p className="shrink-0 text-xs font-bold tabular-nums text-zinc-500">
+                    {l.wins}-{l.losses} • {l.winPercentage.toFixed(0)}%
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Recent results */}
+        <section className="rounded-[20px] bg-white p-5 ring-1 ring-black/5">
+          <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">Recent Results</h2>
+          {completedMatches.length === 0 ? (
+            <p className="text-sm text-zinc-400">No matches finished yet.</p>
+          ) : (
+            <div className="divide-y divide-zinc-100">
+              {completedMatches.slice(0, 10).map((m) => (
+                <div key={m.matchId} className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 py-2.5">
+                  <p className="truncate text-right text-sm font-semibold">
+                    {m.team1.map((p) => p.fullName).join(" / ")}
+                  </p>
+                  <span className="shrink-0 rounded-lg bg-brand-soft px-2.5 py-1 text-xs font-bold tabular-nums text-brand-dark">
+                    {m.team1Score ?? 0}-{m.team2Score ?? 0}
+                  </span>
+                  <p className="truncate text-sm font-semibold text-zinc-500">
+                    {m.team2.map((p) => p.fullName).join(" / ")}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </main>
+    </div>
+  );
+}
+</file>
+
+<file path="src/services/public/index.ts">
+export * from "./public.service.ts";
+</file>
+
+<file path="src/services/public/public.service.ts">
+import { apiClient } from "../api/client";
+import type { MatchDto, QueueEntryDto } from "../matches/matches.types";
+import type { LeaderboardPlayerDto } from "../leaderboard/leaderboard.types";
+
+// These hit new, unauthenticated endpoints on the backend (see PublicController) — no
+// token required, so this is safe to call from a public "watch" link with no login.
+// apiClient still attaches a token if one happens to be present (e.g. an organizer
+// opening their own watch link), but the backend won't require it here.
+
+export interface PublicSessionDto {
+  sessionId: number;
+  sessionName: string;
+  numberOfCourts: number;
+  status: string;
+}
+
+export async function getPublicSession(sessionId: number): Promise<PublicSessionDto> {
+  const { data } = await apiClient.get<PublicSessionDto>(`/public/sessions/${sessionId}`);
+  return data;
+}
+
+export async function getPublicQueue(sessionId: number): Promise<QueueEntryDto[]> {
+  const { data } = await apiClient.get<QueueEntryDto[]>(`/public/sessions/${sessionId}/queue`);
+  return data;
+}
+
+export async function getPublicActiveMatches(sessionId: number): Promise<MatchDto[]> {
+  const { data } = await apiClient.get<MatchDto[]>(`/public/sessions/${sessionId}/matches/active`);
+  return data;
+}
+
+// Same "next up" data the organizer's Queue page shows — the prepared, not-yet-started
+// matches (target: 2), read-only here.
+export async function getPublicNextUpMatches(sessionId: number): Promise<MatchDto[]> {
+  const { data } = await apiClient.get<MatchDto[]>(`/public/sessions/${sessionId}/matches/next-up`);
+  return data;
+}
+
+export async function getPublicCompletedMatches(sessionId: number): Promise<MatchDto[]> {
+  const { data } = await apiClient.get<MatchDto[]>(`/public/sessions/${sessionId}/matches/completed`);
+  return data;
+}
+
+export async function getPublicLeaderboard(sessionId: number): Promise<LeaderboardPlayerDto[]> {
+  const { data } = await apiClient.get<LeaderboardPlayerDto[]>(`/public/sessions/${sessionId}/leaderboard`);
+  return data;
+}
+</file>
 
 <file path="eslint.config.js">
 import js from '@eslint/js'
@@ -291,6 +658,7 @@ import PlayersPage from "./pages/Players";
 import QueuePage from "./pages/Queue";
 import MatchesPage from "./pages/Matches";
 import LeaderboardPage from "./pages/Leaderboard";
+import WatchPage from "./pages/Watch";
 import NotFoundPage from "./pages/NotFound";
 
 export default function App() {
@@ -304,6 +672,8 @@ export default function App() {
       <Route path="/queue" element={<QueuePage />} />
       <Route path="/matches" element={<MatchesPage />} />
       <Route path="/leaderboard" element={<LeaderboardPage />} />
+      {/* Public, no-login spectator view — share this link/QR with players */}
+      <Route path="/watch/:sessionId" element={<WatchPage />} />
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );
@@ -4897,6 +5267,7 @@ export * as playersService from "./players";
 export * as sessionsService from "./sessions";
 export * as matchesService from "./matches";
 export * as leaderboardService from "./leaderboard";
+export * as publicService from "./public";
 export { apiClient } from "./api/client";
 </file>
 
@@ -5405,7 +5776,7 @@ export default function LeaderboardPanel() {
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-950/5">
-              {leaders.slice(0, 5).map((p) => (
+              {leaders.slice(0, 3).map((p) => (
                 <tr key={p.playerId}>
                   <td className="py-3">
                     <div
@@ -5734,7 +6105,8 @@ export {
 
 <file path="src/pages/Sessions.tsx">
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Plus, Loader2, Users, X, Trophy, Medal } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Plus, Loader2, Users, X, Share2, Check, Eye, History, Pencil, MoreVertical, Square } from "lucide-react";
 import { AppShell, PageHeader, Panel } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -5748,22 +6120,32 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
+import {
   createSession,
   getMySessions,
+  updateSession,
   endSession,
   addPlayerToSession,
   getSessionPlayers,
   removePlayerFromSession,
 } from "@/services/sessions";
 import { getAllPlayers } from "@/services/players";
-import { getSessionLeaderboard } from "@/services/leaderboard";
 import type { CreateSessionPayload, SessionDto, SessionPlayerDto } from "@/services/sessions";
 import type { PlayerDto } from "@/services/players";
-import type { LeaderboardPlayerDto } from "@/services/leaderboard";
 
-// Same gold / silver / bronze badge treatment as the dashboard's Top Performers panel.
-const medalTone = (rank: number) =>
-  rank === 1 ? "bg-ball" : rank === 2 ? "bg-zinc-300" : rank === 3 ? "bg-amber-600" : "bg-zinc-100 text-zinc-500";
+const SKILL_CATEGORIES = ["Novice", "Intermediate", "Advanced"] as const;
+
+// Same skill-tier color coding as the Players page, so category reads consistently everywhere.
+const TIER_STYLE: Record<string, string> = {
+  Advanced: "bg-ink text-white",
+  Intermediate: "bg-brand text-zinc-900",
+  Novice: "bg-zinc-200 text-zinc-700",
+};
 
 const emptyForm = {
   sessionName: "",
@@ -5773,7 +6155,7 @@ const emptyForm = {
   numberOfCourts: 4,
 };
 
-// Lock/unlock pairing now lives on the Queue page — that's where the organizer is
+// Lock/unlock pairing lives on the Queue page — that's where the organizer is
 // actually looking when deciding who should play together, and it needs to react to
 // who's currently queued/in-match, which this dialog doesn't track.
 export default function SessionsPage() {
@@ -5787,16 +6169,23 @@ export default function SessionsPage() {
   const [creating, setCreating] = useState(false);
 
   const [endingId, setEndingId] = useState<number | null>(null);
+  const [copiedSessionId, setCopiedSessionId] = useState<number | null>(null);
+
+  // Edit session (name only — that's all the backend currently accepts)
+  const [editTarget, setEditTarget] = useState<SessionDto | null>(null);
+  const [editForm, setEditForm] = useState(emptyForm);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   // Roster management
   const [rosterSession, setRosterSession] = useState<SessionDto | null>(null);
   const [rosterPlayers, setRosterPlayers] = useState<SessionPlayerDto[]>([]);
   const [allPlayers, setAllPlayers] = useState<PlayerDto[]>([]);
-  const [leaders, setLeaders] = useState<LeaderboardPlayerDto[]>([]);
   const [rosterLoading, setRosterLoading] = useState(false);
   const [rosterError, setRosterError] = useState<string | null>(null);
   const [pendingPlayerId, setPendingPlayerId] = useState<number | null>(null);
   const [addSearch, setAddSearch] = useState("");
+  const [addCategoryFilter, setAddCategoryFilter] = useState<string>("All");
 
   const loadSessions = async () => {
     setLoading(true);
@@ -5814,6 +6203,18 @@ export default function SessionsPage() {
   useEffect(() => {
     void loadSessions();
   }, []);
+
+  // Live sessions always float to the top, regardless of date — an organizer
+  // actively running a session shouldn't have to scroll past history to find it.
+  const sortedSessions = useMemo(() => {
+    return [...sessions].sort((a, b) => {
+      const aLive = a.status === "Active" ? 1 : 0;
+      const bLive = b.status === "Active" ? 1 : 0;
+      if (aLive !== bLive) return bLive - aLive;
+
+      return new Date(b.sessionDate).getTime() - new Date(a.sessionDate).getTime();
+    });
+  }, [sessions]);
 
   const handleCreate = async (e: FormEvent) => {
     e.preventDefault();
@@ -5853,20 +6254,72 @@ export default function SessionsPage() {
     }
   };
 
+  // Copies a public, no-login link players can open to watch the live queue,
+  // courts, and leaderboard for this session.
+  const handleCopyWatchLink = async (sessionId: number) => {
+    const url = `${window.location.origin}/watch/${sessionId}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedSessionId(sessionId);
+      setTimeout(() => setCopiedSessionId((current) => (current === sessionId ? null : current)), 2000);
+    } catch {
+      setError("Couldn't copy the link. Please try again.");
+    }
+  };
+
+  const openEditSession = (session: SessionDto) => {
+  setEditTarget(session);
+  setEditForm({
+    sessionName: session.sessionName,
+    sessionDate: session.sessionDate.slice(0, 10),
+    startTime: session.startTime.slice(0, 5),
+    endTime: session.endTime.slice(0, 5),
+    numberOfCourts: session.numberOfCourts,
+  });
+  setEditError(null);
+};
+
+  const closeEditSession = () => {
+    setEditTarget(null);
+    setEditError(null);
+  };
+
+  const handleEditSubmit = async (e: FormEvent) => {
+  e.preventDefault();
+  if (!editTarget) return;
+  setEditSaving(true);
+  setEditError(null);
+  try {
+    await updateSession(editTarget.sessionId, {
+      sessionName: editForm.sessionName,
+      sessionDate: editForm.sessionDate,
+      startTime: `${editForm.startTime}:00`,
+      endTime: `${editForm.endTime}:00`,
+      numberOfCourts: editForm.numberOfCourts,
+    });
+    closeEditSession();
+    await loadSessions();
+  } catch (err) {
+    const apiErr = err as { message?: string };
+    setEditError(apiErr.message ?? "Couldn't update the session. Please try again.");
+  } finally {
+    setEditSaving(false);
+  }
+};
+
   const openRoster = async (session: SessionDto) => {
     setRosterSession(session);
     setRosterError(null);
     setAddSearch("");
+    setAddCategoryFilter("All");
     setRosterLoading(true);
     try {
-      const [players, roster, sessionLeaders] = await Promise.all([
+      const [players, roster] = await Promise.all([
         allPlayers.length > 0 ? Promise.resolve(allPlayers) : getAllPlayers(),
         getSessionPlayers(session.sessionId),
-        getSessionLeaderboard(session.sessionId),
       ]);
       setAllPlayers(players);
       setRosterPlayers(roster);
-      setLeaders(sessionLeaders);
     } catch {
       setRosterError("Couldn't load the roster for this session.");
     } finally {
@@ -5884,9 +6337,12 @@ export default function SessionsPage() {
     const rosterIds = new Set(rosterPlayers.map((rp) => rp.playerId));
     const pool = allPlayers.filter((p) => !rosterIds.has(p.playerId));
     const q = addSearch.trim().toLowerCase();
-    if (!q) return pool;
-    return pool.filter((p) => p.fullName.toLowerCase().includes(q));
-  }, [allPlayers, rosterPlayers, addSearch]);
+    return pool.filter((p) => {
+      const matchesSearch = !q || p.fullName.toLowerCase().includes(q);
+      const matchesCategory = addCategoryFilter === "All" || p.skillCategory === addCategoryFilter;
+      return matchesSearch && matchesCategory;
+    });
+  }, [allPlayers, rosterPlayers, addSearch, addCategoryFilter]);
 
   const handleAddToRoster = async (playerId: number) => {
     if (!rosterSession) return;
@@ -5895,8 +6351,9 @@ export default function SessionsPage() {
     try {
       const added = await addPlayerToSession(rosterSession.sessionId, playerId);
       setRosterPlayers((prev) => [...prev, added]);
-    } catch {
-      setRosterError("Couldn't add that player. They may already be in this session.");
+    } catch (err) {
+      const apiErr = err as { message?: string };
+      setRosterError(apiErr.message ?? "Couldn't add that player. They may already be in this session.");
     } finally {
       setPendingPlayerId(null);
     }
@@ -5952,7 +6409,7 @@ export default function SessionsPage() {
         </Panel>
       ) : (
         <div className="grid gap-4 sm:gap-6">
-          {sessions.map((s) => {
+          {sortedSessions.map((s) => {
             const { month, day } = formatDate(s.sessionDate);
             const isLive = s.status === "Active";
 
@@ -5985,10 +6442,47 @@ export default function SessionsPage() {
                       </p>
                     </div>
                   </div>
+
+                  {/* Desktop / wide screens: full button row */}
                   <div className="hidden shrink-0 items-center gap-3 sm:flex">
                     <Button size="sm" variant="outline" onClick={() => openRoster(s)} className="rounded-full">
                       <Users className="size-3.5" /> Manage Players
                     </Button>
+                    <Button size="sm" variant="outline" onClick={() => openEditSession(s)} className="rounded-full">
+                      <Pencil className="size-3.5" /> Edit Session
+                    </Button>
+                    {isLive && (
+                      <Button size="sm" variant="outline" asChild className="rounded-full">
+                        <Link to={`/queue?sessionId=${s.sessionId}`}>
+                          <Eye className="size-3.5" /> View Queue
+                        </Link>
+                      </Button>
+                    )}
+                    {!isLive && (
+                      <Button size="sm" variant="outline" asChild className="rounded-full">
+                        <Link to={`/matches?sessionId=${s.sessionId}`}>
+                          <History className="size-3.5" /> View Results
+                        </Link>
+                      </Button>
+                    )}
+                    {isLive && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleCopyWatchLink(s.sessionId)}
+                        className="rounded-full"
+                      >
+                        {copiedSessionId === s.sessionId ? (
+                          <>
+                            <Check className="size-3.5" /> Copied
+                          </>
+                        ) : (
+                          <>
+                            <Share2 className="size-3.5" /> Watch Link
+                          </>
+                        )}
+                      </Button>
+                    )}
                     {isLive && (
                       <Button
                         size="sm"
@@ -6000,6 +6494,52 @@ export default function SessionsPage() {
                         {endingId === s.sessionId ? "Ending…" : "End Session"}
                       </Button>
                     )}
+                  </div>
+
+                  {/* Small screens: same actions collapsed into a menu */}
+                  <div className="shrink-0 sm:hidden">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="sm" variant="outline" className="size-9 rounded-full p-0">
+                          <MoreVertical className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => openRoster(s)}>
+                          <Users className="size-3.5" /> Manage Players
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => openEditSession(s)}>
+                          <Pencil className="size-3.5" /> Edit Session
+                        </DropdownMenuItem>
+                        {isLive ? (
+                          <DropdownMenuItem asChild>
+                            <Link to={`/queue?sessionId=${s.sessionId}`}>
+                              <Eye className="size-3.5" /> View Queue
+                            </Link>
+                          </DropdownMenuItem>
+                        ) : (
+                          <DropdownMenuItem asChild>
+                            <Link to={`/matches?sessionId=${s.sessionId}`}>
+                              <History className="size-3.5" /> View Results
+                            </Link>
+                          </DropdownMenuItem>
+                        )}
+                        {isLive && (
+                          <DropdownMenuItem onClick={() => handleCopyWatchLink(s.sessionId)}>
+                            <Share2 className="size-3.5" /> {copiedSessionId === s.sessionId ? "Copied" : "Watch Link"}
+                          </DropdownMenuItem>
+                        )}
+                        {isLive && (
+                          <DropdownMenuItem
+                            onClick={() => handleEndSession(s.sessionId)}
+                            disabled={endingId === s.sessionId}
+                            className="text-red-500 focus:text-red-500"
+                          >
+                            <Square className="size-3.5" /> {endingId === s.sessionId ? "Ending…" : "End Session"}
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </div>
               </Panel>
@@ -6085,6 +6625,82 @@ export default function SessionsPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Edit session dialog */}
+      <Dialog open={!!editTarget} onOpenChange={(open) => !open && closeEditSession()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit session</DialogTitle>
+            <DialogDescription>Update the date, time, and courts for this session.</DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleEditSubmit} className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="editSessionName">Session name</Label>
+              <Input
+                id="editSessionName"
+                required
+                value={editForm.sessionName}
+                onChange={(e) => setEditForm((f) => ({ ...f, sessionName: e.target.value }))}
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="editSessionDate">Date</Label>
+              <Input
+                id="editSessionDate"
+                type="date"
+                required
+                value={editForm.sessionDate}
+                onChange={(e) => setEditForm((f) => ({ ...f, sessionDate: e.target.value }))}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="editStartTime">Start time</Label>
+                <Input
+                  id="editStartTime"
+                  type="time"
+                  required
+                  value={editForm.startTime}
+                  onChange={(e) => setEditForm((f) => ({ ...f, startTime: e.target.value }))}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="editEndTime">End time</Label>
+                <Input
+                  id="editEndTime"
+                  type="time"
+                  required
+                  value={editForm.endTime}
+                  onChange={(e) => setEditForm((f) => ({ ...f, endTime: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="editNumberOfCourts">Number of courts</Label>
+              <Input
+                id="editNumberOfCourts"
+                type="number"
+                min={1}
+                required
+                value={editForm.numberOfCourts}
+                onChange={(e) => setEditForm((f) => ({ ...f, numberOfCourts: Number(e.target.value) }))}
+              />
+            </div>
+
+            {editError && <p className="text-sm text-red-500">{editError}</p>}
+
+            <DialogFooter>
+              <Button type="submit" disabled={editSaving} className="w-full">
+                {editSaving ? "Saving…" : "Save changes"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
       {/* Manage players dialog */}
       <Dialog open={!!rosterSession} onOpenChange={(open) => !open && closeRoster()}>
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
@@ -6103,37 +6719,6 @@ export default function SessionsPage() {
             <div className="flex flex-col gap-5">
               {rosterError && <p className="text-sm text-red-500">{rosterError}</p>}
 
-              {/* Mini leaderboard for this session — top 3 only */}
-              <div>
-                <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                  <Trophy className="size-3.5" /> Leading this session
-                </p>
-                {leaders.length === 0 ? (
-                  <p className="text-sm text-zinc-400">No results yet — play a few matches to populate this.</p>
-                ) : (
-                  <div className="flex flex-col gap-1">
-                    {leaders.slice(0, 3).map((l) => (
-                      <div
-                        key={l.playerId}
-                        className="flex items-center justify-between rounded-lg bg-zinc-50 px-3 py-1.5 text-sm"
-                      >
-                        <span className="flex items-center gap-2">
-                          <span
-                            className={`grid size-6 place-items-center rounded-full text-[10px] font-bold text-zinc-900 ${medalTone(l.rank)}`}
-                          >
-                            {l.rank <= 3 ? <Medal className="size-3.5" /> : l.rank}
-                          </span>
-                          {l.fullName}
-                        </span>
-                        <span className="tabular-nums text-zinc-500">
-                          {l.wins}-{l.losses} • {l.winPercentage.toFixed(0)}%
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
               <div>
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">
                   In this session ({rosterPlayers.length})
@@ -6141,14 +6726,22 @@ export default function SessionsPage() {
                 {rosterPlayers.length === 0 ? (
                   <p className="text-sm text-zinc-400">No players added yet.</p>
                 ) : (
-                  <div className="flex flex-col gap-1.5">
+                  <div className="flex max-h-64 flex-col gap-1.5 overflow-y-auto">
                     {rosterPlayers.map((rp) => (
                       <div key={rp.playerId} className="flex items-center justify-between rounded-xl bg-zinc-50 px-3 py-2">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium">{rp.fullName}</p>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <p className="truncate text-sm font-medium">{rp.fullName}</p>
+                            <span
+                              className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
+                                TIER_STYLE[rp.skillCategory] ?? "bg-zinc-200 text-zinc-700"
+                              }`}
+                            >
+                              {rp.skillCategory}
+                            </span>
+                          </div>
                           <p className="text-xs text-zinc-400">
-                            {rp.skillCategory} • {rp.gamesPlayedInSession} game
-                            {rp.gamesPlayedInSession === 1 ? "" : "s"} played
+                            {rp.gamesPlayedInSession} game{rp.gamesPlayedInSession === 1 ? "" : "s"} played
                             {rp.lockedPartnerName ? ` • 🔒 paired with ${rp.lockedPartnerName}` : ""}
                           </p>
                         </div>
@@ -6167,35 +6760,54 @@ export default function SessionsPage() {
               </div>
 
               <div>
-                <div className="mb-2 flex items-center justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                    Add from roster ({availablePlayers.length})
-                  </p>
-                </div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                  Add from roster ({availablePlayers.length})
+                </p>
                 <Input
                   value={addSearch}
                   onChange={(e) => setAddSearch(e.target.value)}
                   placeholder="Search players to add…"
                   className="mb-2"
                 />
+                <div className="mb-2 flex flex-wrap gap-1.5">
+                  {["All", ...SKILL_CATEGORIES].map((cat) => (
+                    <button
+                      key={cat}
+                      onClick={() => setAddCategoryFilter(cat)}
+                      className={`rounded-full px-2.5 py-1 text-[11px] font-bold transition-colors ${
+                        addCategoryFilter === cat
+                          ? "bg-ink text-white"
+                          : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
                 {availablePlayers.length === 0 ? (
                   <p className="text-sm text-zinc-400">
                     {allPlayers.length === 0
                       ? "You don't have any players yet."
-                      : addSearch
-                        ? "No players match your search."
-                        : "Everyone is already in this session."}
+                      : "No players match your search or filter."}
                   </p>
                 ) : (
-                  <div className="flex max-h-56 flex-col gap-1.5 overflow-y-auto">
+                  <div className="flex max-h-64 flex-col gap-1.5 overflow-y-auto">
                     {availablePlayers.map((p) => (
                       <div
                         key={p.playerId}
                         className="flex items-center justify-between rounded-xl px-3 py-2 ring-1 ring-zinc-100"
                       >
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium">{p.fullName}</p>
-                          <p className="text-xs text-zinc-400">{p.skillCategory}</p>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <p className="truncate text-sm font-medium">{p.fullName}</p>
+                            <span
+                              className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
+                                TIER_STYLE[p.skillCategory] ?? "bg-zinc-200 text-zinc-700"
+                              }`}
+                            >
+                              {p.skillCategory}
+                            </span>
+                          </div>
                         </div>
                         <Button
                           size="sm"
@@ -6217,72 +6829,6 @@ export default function SessionsPage() {
       </Dialog>
     </AppShell>
   );
-}
-</file>
-
-<file path="src/services/auth/auth.service.ts">
-import { apiClient } from "../api/client";
-import { setSession, clearSession } from "./session.storage";
-import type {
-  AuthResponseDto,
-  EmailLoginPayload,
-  EmailSignupPayload,
-  GoogleLoginPayload,
-  OrganizerDto,
-} from "./auth.types";
-
-export async function loginWithGoogle(payload: GoogleLoginPayload): Promise<AuthResponseDto> {
-  const { data } = await apiClient.post<AuthResponseDto>("/auth/login", payload);
-  setSession(data.token, data.organizer);
-  return data;
-}
-
-export async function signupWithGoogle(payload: GoogleLoginPayload): Promise<AuthResponseDto> {
-  const { data } = await apiClient.post<AuthResponseDto>("/auth/signup", payload);
-  setSession(data.token, data.organizer);
-  return data;
-}
-
-// Convenience auth by email only — no password, no verification. Works in every
-// environment now that the Development-only gate has been removed on the backend.
-export async function loginWithEmail(payload: EmailLoginPayload): Promise<AuthResponseDto> {
-  const { data } = await apiClient.post<AuthResponseDto>("/auth/email-login", payload);
-  setSession(data.token, data.organizer);
-  return data;
-}
-
-export async function signupWithEmail(payload: EmailSignupPayload): Promise<AuthResponseDto> {
-  const { data } = await apiClient.post<AuthResponseDto>("/auth/email-signup", payload);
-  setSession(data.token, data.organizer);
-  return data;
-}
-
-export async function getCurrentOrganizer(): Promise<OrganizerDto> {
-  const { data } = await apiClient.get<OrganizerDto>("/auth/me");
-  return data;
-}
-
-// Clears the stored token/organizer. Purely local — there's no server-side session to
-// invalidate here (auth is a stateless JWT), so logging out is just forgetting it locally.
-export function logout(): void {
-  clearSession();
-}
-
-/**
- * Decodes the JWT credential returned by Google Identity Services in the browser.
- * This does NOT verify the signature — only use it against Google's own credential response.
- */
-export function decodeGoogleCredential(credential: string): GoogleLoginPayload {
-  const payloadSegment = credential.split(".")[1];
-  const normalized = payloadSegment.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), "=");
-  const payload = JSON.parse(atob(padded));
-
-  return {
-    userId: payload.sub,
-    email: payload.email,
-    fullName: payload.name,
-  };
 }
 </file>
 
@@ -6445,6 +6991,10 @@ export interface CreateSessionPayload {
 export interface UpdateSessionPayload {
   sessionName?: string;
   status?: string;
+  sessionDate?: string;
+  startTime?: string;
+  endTime?: string;
+  numberOfCourts?: number;
 }
 
 export interface SessionPlayerDto {
@@ -6469,6 +7019,72 @@ export interface SessionPlayerDto {
 export interface BenchPlayerPayload {
   playerId: number;
   reason?: string;
+}
+</file>
+
+<file path="src/services/auth/auth.service.ts">
+import { apiClient } from "../api/client";
+import { setSession, clearSession } from "./session.storage";
+import type {
+  AuthResponseDto,
+  EmailLoginPayload,
+  EmailSignupPayload,
+  GoogleLoginPayload,
+  OrganizerDto,
+} from "./auth.types";
+
+export async function loginWithGoogle(payload: GoogleLoginPayload): Promise<AuthResponseDto> {
+  const { data } = await apiClient.post<AuthResponseDto>("/auth/login", payload);
+  setSession(data.token, data.organizer);
+  return data;
+}
+
+export async function signupWithGoogle(payload: GoogleLoginPayload): Promise<AuthResponseDto> {
+  const { data } = await apiClient.post<AuthResponseDto>("/auth/signup", payload);
+  setSession(data.token, data.organizer);
+  return data;
+}
+
+// Convenience auth by email only — no password, no verification. Works in every
+// environment now that the Development-only gate has been removed on the backend.
+export async function loginWithEmail(payload: EmailLoginPayload): Promise<AuthResponseDto> {
+  const { data } = await apiClient.post<AuthResponseDto>("/auth/email-login", payload);
+  setSession(data.token, data.organizer);
+  return data;
+}
+
+export async function signupWithEmail(payload: EmailSignupPayload): Promise<AuthResponseDto> {
+  const { data } = await apiClient.post<AuthResponseDto>("/auth/email-signup", payload);
+  setSession(data.token, data.organizer);
+  return data;
+}
+
+export async function getCurrentOrganizer(): Promise<OrganizerDto> {
+  const { data } = await apiClient.get<OrganizerDto>("/auth/me");
+  return data;
+}
+
+// Clears the stored token/organizer. Purely local — there's no server-side session to
+// invalidate here (auth is a stateless JWT), so logging out is just forgetting it locally.
+export function logout(): void {
+  clearSession();
+}
+
+/**
+ * Decodes the JWT credential returned by Google Identity Services in the browser.
+ * This does NOT verify the signature — only use it against Google's own credential response.
+ */
+export function decodeGoogleCredential(credential: string): GoogleLoginPayload {
+  const payloadSegment = credential.split(".")[1];
+  const normalized = payloadSegment.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), "=");
+  const payload = JSON.parse(atob(padded));
+
+  return {
+    userId: payload.sub,
+    email: payload.email,
+    fullName: payload.name,
+  };
 }
 </file>
 
@@ -6683,167 +7299,6 @@ export interface SwapWithQueuePayload {
 <file path="vercel.json">
 {
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
-}
-</file>
-
-<file path="src/components/app-shell.tsx">
-import { Link, useLocation, useNavigate } from "react-router-dom";
-import { type ReactNode } from "react";
-import { PickleballIcon } from "../components/icons/pickleball-icons";
-import { getStoredOrganizer, logout } from "@/services/auth";
-
-const NAV: { label: string; to: string }[] = [
-  { label: "Dashboard", to: "/dashboard" },
-  { label: "Sessions", to: "/sessions" },
-  { label: "Players", to: "/players" },
-  { label: "Queue", to: "/queue" },
-  { label: "Matches", to: "/matches" },
-  { label: "Leaderboard", to: "/leaderboard" },
-];
-
-// "Jeevon Ricafort" -> "JR". Falls back gracefully for single-word or missing names.
-function getInitials(fullName: string | undefined): string {
-  if (!fullName) return "?";
-  const parts = fullName.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
-export function AppShell({ children }: { children: ReactNode }) {
-  const { pathname } = useLocation();
-  const navigate = useNavigate();
-  const organizer = getStoredOrganizer();
-  const initials = getInitials(organizer?.fullName);
-
-  const handleLogout = () => {
-    logout();
-    navigate("/", { replace: true });
-  };
-
-  return (
-    <div className="min-h-screen bg-zinc-50 font-sans text-zinc-900">
-      <nav className="sticky top-0 z-50 border-b border-zinc-200 bg-white/85 backdrop-blur-md">
-        <div className="mx-auto grid max-w-7xl grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3 sm:px-6">
-          <div className="flex min-w-0 items-center gap-4 lg:gap-8">
-            <Link to="/dashboard" className="flex shrink-0 items-center gap-2">
-              <PickleballIcon className="size-8" />
-              <span className="text-base font-bold tracking-tight">
-                MixFlow<span className="text-brand-dark">.</span>
-              </span>
-            </Link>
-            <div className="hidden min-w-0 gap-1 md:flex">
-              {NAV.map((item) => {
-                const active = pathname === item.to;
-                return (
-                  <Link
-                    key={item.label}
-                    to={item.to}
-                    className={`relative rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
-                      active
-                        ? "bg-ink text-white"
-                        : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
-                    }`}
-                  >
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-3">
-            <button
-              type="button"
-              onClick={handleLogout}
-              title="Log out"
-              className="rounded-full bg-zinc-100 p-1 text-zinc-500 transition-colors hover:bg-zinc-200 hover:text-zinc-900">
-              <span className="sr-only">Logout</span>
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={1.5}
-                stroke="currentColor"
-                className="size-7"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75"
-                />
-              </svg>
-            </button>
-            <div
-              title={organizer?.fullName}
-              className="grid size-9 shrink-0 place-items-center rounded-full bg-linear-to-br from-ball to-brand text-[11px] font-bold text-zinc-900 ring-2 ring-white shadow-sm"
-            >
-              {initials}
-            </div>
-          </div>
-        </div>
-        <div className="flex gap-1 overflow-x-auto px-4 pb-2 md:hidden">
-          {NAV.map((item) => {
-            const active = pathname === item.to;
-            return (
-              <Link
-                key={item.label}
-                to={item.to}
-                className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${
-                  active ? "bg-ink text-white" : "bg-zinc-100 text-zinc-600"
-                }`}
-              >
-                {item.label}
-              </Link>
-            );
-          })}
-        </div>
-      </nav>
-      <main className="mx-auto max-w-7xl p-4 sm:p-6">{children}</main>
-    </div>
-  );
-}
-
-export function PageHeader({
-  eyebrow,
-  title,
-  subtitle,
-  action,
-}: {
-  eyebrow?: string;
-  title: string;
-  subtitle?: string;
-  action?: ReactNode;
-}) {
-  return (
-    <header className="mb-6 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-4">
-      <div className="min-w-0">
-        {eyebrow && (
-          <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.15em] text-brand-dark">
-            {eyebrow}
-          </p>
-        )}
-        <h1 className="truncate text-2xl font-bold tracking-tight sm:text-3xl">{title}</h1>
-        {subtitle && <p className="mt-1 text-sm text-zinc-500">{subtitle}</p>}
-      </div>
-      {action}
-    </header>
-  );
-}
-
-export function Panel({
-  children,
-  className = "",
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <section
-      className={`rounded-[20px] bg-white p-5 ring-1 ring-black/5 sm:p-6 ${className}`}
-    >
-      {children}
-    </section>
-  );
 }
 </file>
 
@@ -7212,20 +7667,38 @@ export default function SignUpPage() {
 </file>
 
 <file path="src/pages/Leaderboard.tsx">
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { AppShell, PageHeader, Panel } from "@/components/app-shell";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { getActiveSessionLeaderboard, getOverallLeaderboard } from "@/services/leaderboard";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectGroup,
+  SelectLabel,
+  SelectItem,
+} from "@/components/ui/select";
+import { getSessionLeaderboard, getOverallLeaderboard } from "@/services/leaderboard";
 import type { LeaderboardPlayerDto } from "@/services/leaderboard";
+import { getMySessions } from "@/services/sessions";
+import type { SessionDto } from "@/services/sessions";
 
 function initials(name: string) {
   return name.split(" ").map((n) => n[0]).join("");
 }
 
+function formatSessionDate(iso: string) {
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
 export default function LeaderboardPage() {
-  const [sessionName, setSessionName] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<SessionDto[]>([]);
+  const [selectedSessionId, setSelectedSessionId] = useState<number | null>(null);
   const [sessionRankings, setSessionRankings] = useState<LeaderboardPlayerDto[]>([]);
+  const [sessionSwitching, setSessionSwitching] = useState(false);
+
   const [overallRankings, setOverallRankings] = useState<LeaderboardPlayerDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -7233,14 +7706,18 @@ export default function LeaderboardPage() {
   useEffect(() => {
     let cancelled = false;
 
-    Promise.all([getActiveSessionLeaderboard(), getOverallLeaderboard()])
-      .then(([activeSession, overall]) => {
+    Promise.all([getMySessions(), getOverallLeaderboard()])
+      .then(([allSessions, overall]) => {
         if (cancelled) return;
-        if (activeSession !== null) {
-          setSessionName(activeSession.sessionName);
-          setSessionRankings(activeSession.leaderboard);
-        }
+
+        const sorted = [...allSessions].sort(
+          (a, b) => new Date(b.sessionDate).getTime() - new Date(a.sessionDate).getTime()
+        );
+        setSessions(sorted);
         setOverallRankings(overall);
+
+        const defaultSession = sorted.find((s) => s.status === "Active") ?? sorted[0];
+        if (defaultSession) setSelectedSessionId(defaultSession.sessionId);
       })
       .catch(() => {
         if (!cancelled) setError("Couldn't load the leaderboard.");
@@ -7253,6 +7730,35 @@ export default function LeaderboardPage() {
       cancelled = true;
     };
   }, []);
+
+  // Fetch the picked session's rankings whenever the selection changes.
+  useEffect(() => {
+    if (selectedSessionId === null) return;
+
+    let cancelled = false;
+    setSessionSwitching(true);
+    getSessionLeaderboard(selectedSessionId)
+      .then((rankings) => {
+        if (!cancelled) setSessionRankings(rankings);
+      })
+      .catch(() => {
+        if (!cancelled) setError("Couldn't load that session's leaderboard.");
+      })
+      .finally(() => {
+        if (!cancelled) setSessionSwitching(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSessionId]);
+
+  const activeSessions = useMemo(() => sessions.filter((s) => s.status === "Active"), [sessions]);
+  const pastSessions = useMemo(() => sessions.filter((s) => s.status !== "Active"), [sessions]);
+  const selectedSession = useMemo(
+    () => sessions.find((s) => s.sessionId === selectedSessionId) ?? null,
+    [sessions, selectedSessionId]
+  );
 
   if (loading) {
     return (
@@ -7284,15 +7790,59 @@ export default function LeaderboardPage() {
         </TabsList>
 
         <TabsContent value="session">
-          <LeaderboardView
-            rankings={sessionRankings}
-            subtitle={sessionName ? sessionName : undefined}
-            emptyMessage={
-              sessionName === null
-                ? "No active session right now. Start a session to see live standings here."
-                : "No results yet for this session — the leaderboard fills in as matches are recorded."
-            }
-          />
+          {sessions.length === 0 ? (
+            <Panel className="mt-4 text-center text-sm text-zinc-400">
+              No sessions yet. Start a session to see standings here.
+            </Panel>
+          ) : (
+            <>
+              <div className="mt-4 flex items-center gap-2">
+                <Select
+                  value={selectedSessionId?.toString() ?? undefined}
+                  onValueChange={(v) => setSelectedSessionId(Number(v))}
+                >
+                  <SelectTrigger className="w-full sm:w-72">
+                    <SelectValue placeholder="Choose a session" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {activeSessions.length > 0 && (
+                      <SelectGroup>
+                        <SelectLabel>Active now</SelectLabel>
+                        {activeSessions.map((s) => (
+                          <SelectItem key={s.sessionId} value={s.sessionId.toString()}>
+                            {s.sessionName}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    )}
+                    {pastSessions.length > 0 && (
+                      <SelectGroup>
+                        <SelectLabel>Past sessions</SelectLabel>
+                        {pastSessions.map((s) => (
+                          <SelectItem key={s.sessionId} value={s.sessionId.toString()}>
+                            {s.sessionName} — {formatSessionDate(s.sessionDate)}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    )}
+                  </SelectContent>
+                </Select>
+                {sessionSwitching && <Loader2 className="size-4 shrink-0 animate-spin text-zinc-400" />}
+              </div>
+
+              <LeaderboardView
+                rankings={sessionRankings}
+                subtitle={
+                  selectedSession
+                    ? `${selectedSession.sessionName} · ${
+                        selectedSession.status === "Active" ? "In progress" : formatSessionDate(selectedSession.sessionDate)
+                      }`
+                    : undefined
+                }
+                emptyMessage="No results yet for this session — the leaderboard fills in as matches are recorded."
+              />
+            </>
+          )}
         </TabsContent>
 
         <TabsContent value="overall">
@@ -7416,7 +7966,7 @@ function Podium({
 
 <file path="src/pages/Players.tsx">
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Plus, Pencil, Trash2, Search, Loader2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Loader2, MoreVertical } from "lucide-react";
 import { AppShell, PageHeader, Panel } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7446,6 +7996,12 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import { getAllPlayers, createPlayer, updatePlayer, deletePlayer } from "@/services/players";
 import type { PlayerDto } from "@/services/players";
 
@@ -7464,6 +8020,7 @@ export default function PlayersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<string>("All");
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingPlayer, setEditingPlayer] = useState<PlayerDto | null>(null);
@@ -7493,9 +8050,12 @@ export default function PlayersPage() {
 
   const filteredPlayers = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return players;
-    return players.filter((p) => p.fullName.toLowerCase().includes(q));
-  }, [players, search]);
+    return players.filter((p) => {
+      const matchesSearch = !q || p.fullName.toLowerCase().includes(q);
+      const matchesCategory = categoryFilter === "All" || p.skillCategory === categoryFilter;
+      return matchesSearch && matchesCategory;
+    });
+  }, [players, search, categoryFilter]);
 
   const openAddDialog = () => {
     setEditingPlayer(null);
@@ -7578,6 +8138,27 @@ export default function PlayersPage() {
         />
       </div>
 
+      <div className="mb-6 flex flex-wrap gap-2">
+        {["All", ...SKILL_CATEGORIES].map((cat) => (
+          <button
+            key={cat}
+            onClick={() => setCategoryFilter(cat)}
+            className={`rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${
+              categoryFilter === cat
+                ? "bg-ink text-white"
+                : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+            }`}
+          >
+            {cat}
+            {cat !== "All" && (
+              <span className="ml-1.5 opacity-60">
+                {players.filter((p) => p.skillCategory === cat).length}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-zinc-400">
           <Loader2 className="size-4 animate-spin" /> Loading roster…
@@ -7586,7 +8167,9 @@ export default function PlayersPage() {
         <p className="text-sm text-red-500">{error}</p>
       ) : filteredPlayers.length === 0 ? (
         <Panel className="text-center text-sm text-zinc-400">
-          {players.length === 0 ? "No players yet. Add one to get started." : "No players match your search."}
+          {players.length === 0
+            ? "No players yet. Add one to get started."
+            : "No players match your search or filter."}
         </Panel>
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -7594,7 +8177,8 @@ export default function PlayersPage() {
             <Panel key={p.playerId} className="group relative overflow-hidden">
               <div className="absolute -right-6 -top-6 size-24 rounded-full bg-brand-soft transition-transform group-hover:scale-110" />
 
-              <div className="absolute right-3 top-3 z-10 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+              {/* Desktop / wide screens: hover-to-reveal icons */}
+              <div className="absolute right-3 top-3 z-10 hidden gap-1 opacity-0 transition-opacity group-hover:opacity-100 sm:flex">
                 <button
                   onClick={() => openEditDialog(p)}
                   className="grid size-7 place-items-center rounded-full bg-white text-zinc-500 ring-1 ring-black/5 hover:text-zinc-900"
@@ -7609,6 +8193,32 @@ export default function PlayersPage() {
                 >
                   <Trash2 className="size-3.5" />
                 </button>
+              </div>
+
+              {/* Small screens: always-visible menu — hover doesn't exist on touch,
+                  so the icons above would otherwise be permanently unreachable here. */}
+              <div className="absolute right-3 top-3 z-10 sm:hidden">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      className="grid size-7 place-items-center rounded-full bg-white text-zinc-500 ring-1 ring-black/5"
+                      aria-label={`Actions for ${p.fullName}`}
+                    >
+                      <MoreVertical className="size-3.5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => openEditDialog(p)}>
+                      <Pencil className="size-3.5" /> Edit
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => setDeleteTarget(p)}
+                      className="text-red-500 focus:text-red-500"
+                    >
+                      <Trash2 className="size-3.5" /> Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
 
               <div className="relative">
@@ -7757,6 +8367,167 @@ dist-ssr
 .env.Production
 </file>
 
+<file path="src/components/app-shell.tsx">
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { type ReactNode } from "react";
+import { PickleballIcon } from "../components/icons/pickleball-icons";
+import { getStoredOrganizer, logout } from "@/services/auth";
+
+const NAV: { label: string; to: string }[] = [
+  { label: "Dashboard", to: "/dashboard" },
+  { label: "Sessions", to: "/sessions" },
+  { label: "Players", to: "/players" },
+  { label: "Queue", to: "/queue" },
+  { label: "Matches", to: "/matches" },
+  { label: "Leaderboard", to: "/leaderboard" },
+];
+
+// "Jeevon Ricafort" -> "JR". Falls back gracefully for single-word or missing names.
+function getInitials(fullName: string | undefined): string {
+  if (!fullName) return "?";
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+export function AppShell({ children }: { children: ReactNode }) {
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const organizer = getStoredOrganizer();
+  const initials = getInitials(organizer?.fullName);
+
+  const handleLogout = () => {
+    logout();
+    navigate("/", { replace: true });
+  };
+
+  return (
+    <div className="min-h-screen bg-zinc-50 font-sans text-zinc-900">
+      <nav className="sticky top-0 z-50 border-b border-zinc-200 bg-white/85 backdrop-blur-md">
+        <div className="mx-auto grid max-w-7xl grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3 sm:px-6">
+          <div className="flex min-w-0 items-center gap-4 lg:gap-8">
+            <Link to="/dashboard" className="flex shrink-0 items-center gap-2">
+              <PickleballIcon className="size-8" />
+              <span className="text-base font-bold tracking-tight">
+                MixFlow<span className="text-brand-dark">.</span>
+              </span>
+            </Link>
+            <div className="hidden min-w-0 gap-1 md:flex">
+              {NAV.map((item) => {
+                const active = pathname === item.to;
+                return (
+                  <Link
+                    key={item.label}
+                    to={item.to}
+                    className={`relative rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
+                      active
+                        ? "bg-ink text-white"
+                        : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
+                    }`}
+                  >
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-3">
+            <button
+              type="button"
+              onClick={handleLogout}
+              title="Log out"
+              className="rounded-full bg-zinc-100 p-1 text-zinc-500 transition-colors hover:bg-zinc-200 hover:text-zinc-900">
+              <span className="sr-only">Logout</span>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={1.5}
+                stroke="currentColor"
+                className="size-7"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75"
+                />
+              </svg>
+            </button>
+            <div
+              title={organizer?.fullName}
+              className="grid size-9 shrink-0 place-items-center rounded-full bg-linear-to-br from-ball to-brand text-[11px] font-bold text-zinc-900 ring-2 ring-white shadow-sm"
+            >
+              {initials}
+            </div>
+          </div>
+        </div>
+        <div className="flex gap-1 overflow-x-auto px-4 pb-2 md:hidden">
+          {NAV.map((item) => {
+            const active = pathname === item.to;
+            return (
+              <Link
+                key={item.label}
+                to={item.to}
+                className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${
+                  active ? "bg-ink text-white" : "bg-zinc-100 text-zinc-600"
+                }`}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
+        </div>
+      </nav>
+      <main className="mx-auto max-w-7xl p-4 sm:p-6">{children}</main>
+    </div>
+  );
+}
+
+export function PageHeader({
+  eyebrow,
+  title,
+  subtitle,
+  action,
+}: {
+  eyebrow?: string;
+  title: string;
+  subtitle?: string;
+  action?: ReactNode;
+}) {
+  return (
+    <header className="mb-6 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-4">
+      <div className="min-w-0">
+        {eyebrow && (
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.15em] text-brand-dark">
+            {eyebrow}
+          </p>
+        )}
+        <h1 className="truncate text-2xl font-bold tracking-tight sm:text-3xl">{title}</h1>
+        {subtitle && <p className="mt-1 text-sm text-zinc-500">{subtitle}</p>}
+      </div>
+      {action}
+    </header>
+  );
+}
+
+export function Panel({
+  children,
+  className = "",
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <section
+      className={`rounded-[20px] bg-white p-5 ring-1 ring-black/5 sm:p-6 ${className}`}
+    >
+      {children}
+    </section>
+  );
+}
+</file>
+
 <file path="src/pages/Dashboard.tsx">
 import { Plus } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -7798,405 +8569,9 @@ export default function DashboardPage() {
 }
 </file>
 
-<file path="src/pages/Matches.tsx">
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Loader2, Shuffle } from "lucide-react";
-import { AppShell, PageHeader, Panel } from "@/components/app-shell";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogClose,
-} from "@/components/ui/dialog";
-import { getActiveSession } from "@/services/sessions";
-import {
-  getActiveMatches,
-  getCompletedMatches,
-  recordMatchResult,
-  smartMixCourt,
-  getQueue,
-  getNextUpMatches,
-} from "@/services/matches";
-import type { SessionDto } from "@/services/sessions";
-import type { MatchDto, QueueEntryDto } from "@/services/matches";
-
-const CARD_WIDTH = 340;
-const GAP = 24;
-
-function wrapperMaxWidth(courtCount: number) {
-  if (courtCount <= 1) return CARD_WIDTH;
-  if (courtCount === 2) return CARD_WIDTH * 2 + GAP;
-  if (courtCount === 3) return CARD_WIDTH * 3 + GAP * 2;
-  return CARD_WIDTH * 2 + GAP; // 4+: force exactly 2 per row
-}
-
-export default function MatchesPage() {
-  const navigate = useNavigate();
-  const [session, setSession] = useState<SessionDto | null>(null);
-  const [sessionLoading, setSessionLoading] = useState(true);
-
-  const [activeMatches, setActiveMatches] = useState<MatchDto[]>([]);
-  const [completedMatches, setCompletedMatches] = useState<MatchDto[]>([]);
-  const [queue, setQueue] = useState<QueueEntryDto[]>([]);
-  const [nextUpMatches, setNextUpMatches] = useState<MatchDto[]>([]);
-  const [dataLoading, setDataLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const [scoringMatch, setScoringMatch] = useState<MatchDto | null>(null);
-  const [busyCourt, setBusyCourt] = useState<number | null>(null);
-
-  useEffect(() => {
-    getActiveSession()
-      .then(setSession)
-      .catch(() => setError("Couldn't load your active session."))
-      .finally(() => setSessionLoading(false));
-  }, []);
-
-  const loadMatches = async (sessionId: number, opts?: { silent?: boolean }) => {
-    if (!opts?.silent) setDataLoading(true);
-    setError(null);
-    try {
-      const [active, completed, queueData, nextUp] = await Promise.all([
-        getActiveMatches(sessionId),
-        getCompletedMatches(sessionId),
-        getQueue(sessionId),
-        getNextUpMatches(sessionId),
-      ]);
-      setActiveMatches(active);
-      setCompletedMatches(completed);
-      setQueue(queueData);
-      setNextUpMatches(nextUp);
-    } catch {
-      setError("Couldn't load matches for this session.");
-    } finally {
-      if (!opts?.silent) setDataLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (session) void loadMatches(session.sessionId);
-  }, [session]);
-
-  const handleAutoMix = async (courtNumber: number) => {
-    if (!session) return;
-    setBusyCourt(courtNumber);
-    setError(null);
-    try {
-      await smartMixCourt(session.sessionId, courtNumber);
-      await loadMatches(session.sessionId, { silent: true });
-    } catch (err) {
-      const apiErr = err as { message?: string };
-      setError(apiErr.message ?? "Couldn't fill this court — there may not be enough players queued.");
-    } finally {
-      setBusyCourt(null);
-    }
-  };
-
-  if (sessionLoading) {
-    return (
-      <AppShell>
-        <div className="flex items-center gap-2 text-sm text-zinc-400">
-          <Loader2 className="size-4 animate-spin" /> Loading matches…
-        </div>
-      </AppShell>
-    );
-  }
-
-  if (!session) {
-    return (
-      <AppShell>
-        <PageHeader eyebrow="Live scoreboard" title="Matches" subtitle="No active session right now." />
-        <Panel className="text-center text-sm text-zinc-400">
-          Start a session to see live courts and match results here.
-        </Panel>
-      </AppShell>
-    );
-  }
-
-  const matchByCourt = new Map(activeMatches.map((m) => [m.courtNumber, m]));
-  const courts = Array.from({ length: session.numberOfCourts }, (_, i) => i + 1);
-
-  return (
-    <AppShell>
-      <PageHeader
-        eyebrow="Live scoreboard"
-        title="Matches"
-        subtitle={`${activeMatches.length} of ${session.numberOfCourts} court${session.numberOfCourts === 1 ? "" : "s"} in play, ${completedMatches.length} match${completedMatches.length === 1 ? "" : "es"} recorded this session.`}
-      />
-
-      {error && <p className="mb-4 text-sm text-red-500">{error}</p>}
-
-      {dataLoading ? (
-        <div className="flex items-center gap-2 text-sm text-zinc-400">
-          <Loader2 className="size-4 animate-spin" /> Loading courts…
-        </div>
-      ) : (
-        <>
-          <div className="mx-auto flex flex-wrap justify-center gap-6" style={{ maxWidth: wrapperMaxWidth(courts.length) }}>
-            {courts.map((courtNumber) => {
-              const match = matchByCourt.get(courtNumber);
-
-              if (match) {
-                return (
-                  <div
-                    key={courtNumber}
-                    style={{ width: CARD_WIDTH }}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => navigate("/queue")}
-                    className="relative cursor-pointer overflow-hidden rounded-[20px] bg-[#8ba668] p-4 text-white ring-1 ring-black/10 transition-transform hover:scale-[1.01]"
-                  >
-                    <div className="relative">
-                      <div className="mb-4 flex items-center justify-between">
-                        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white">
-                          Court {courtNumber}
-                        </p>
-                        <span className="pulse-dot rounded-full bg-red-500 px-2 py-0.5 text-[9px] font-bold uppercase text-white">
-                          Live
-                        </span>
-                      </div>
-
-                      {/* Court view: each side split top/bottom, wide light-blue "kitchen" strip with a thin net line down the middle */}
-                      <div className="grid grid-cols-[1fr_56px_1fr] overflow-hidden rounded-xl border-[4px] border-white">
-                        <div className="grid grid-rows-2 divide-y-[3px] divide-white bg-[#4a7a9c]">
-                          {match.team1.map((p) => (
-                            <div key={p.playerId} className="flex items-center justify-center p-2">
-                              <p className="truncate text-sm font-bold text-white">{p.fullName}</p>
-                            </div>
-                          ))}
-                        </div>
-                        <div className="relative bg-[#5ec2dd]">
-                          <div className="absolute inset-y-0 left-1/2 w-[2px] -translate-x-1/2 bg-zinc-900" />
-                        </div>
-                        <div className="grid grid-rows-2 divide-y-[3px] divide-white bg-[#4a7a9c]">
-                          {match.team2.map((p) => (
-                            <div key={p.playerId} className="flex items-center justify-center p-2">
-                              <p className="truncate text-sm font-bold text-white">{p.fullName}</p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <Button
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setScoringMatch(match);
-                        }}
-                        className="mt-4 w-full rounded-full bg-white text-zinc-900 hover:bg-zinc-100"
-                      >
-                        Record Result
-                      </Button>
-                    </div>
-                  </div>
-                );
-              }
-
-              return (
-                <div
-                  key={courtNumber}
-                  style={{ width: CARD_WIDTH }}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => navigate("/queue")}
-                  className="relative flex cursor-pointer flex-col items-center justify-center rounded-[20px] border-2 border-dashed border-zinc-200 bg-zinc-50 p-6 text-center transition-colors hover:border-brand hover:bg-brand-soft/40"
-                >
-                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400">
-                    Court {courtNumber}
-                  </p>
-
-                  {nextUpMatches[0] ? (
-                    <div className="mt-2 space-y-0.5">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">Up next</p>
-                      <p className="truncate text-xs font-semibold text-zinc-600">
-                        {nextUpMatches[0].team1.map((p) => p.fullName).join(" / ")}
-                      </p>
-                      <p className="truncate text-xs font-semibold text-zinc-600">
-                        {nextUpMatches[0].team2.map((p) => p.fullName).join(" / ")}
-                      </p>
-                    </div>
-                  ) : (
-                    <p className="mt-2 text-sm font-semibold text-zinc-500">Available</p>
-                  )}
-
-                  <Button
-                    size="sm"
-                    disabled={busyCourt === courtNumber || queue.length < 4}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void handleAutoMix(courtNumber);
-                    }}
-                    className="mt-4 w-full rounded-full"
-                  >
-                    <Shuffle className="size-3.5" />
-                    {busyCourt === courtNumber ? "Mixing…" : "Auto Mix"}
-                  </Button>
-                  {queue.length < 4 && (
-                    <p className="mt-2 text-[11px] text-zinc-400">Need 4+ in queue to fill a court</p>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="mt-6">
-            <Panel>
-              <h2 className="mb-4 text-sm font-semibold">Recent results</h2>
-              {completedMatches.length === 0 ? (
-                <p className="text-sm text-zinc-400">No completed matches yet this session.</p>
-              ) : (
-                <div className="divide-y divide-zinc-100">
-                  {completedMatches.map((m) => (
-                    <div
-                      key={m.matchId}
-                      className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 py-3"
-                    >
-                      <p className="truncate text-right text-sm font-semibold">
-                        {m.team1.map((p) => p.fullName).join(" / ")}
-                      </p>
-                      <span className="shrink-0 rounded-lg bg-brand-soft px-3 py-1 text-sm font-bold tabular-nums text-brand-dark">
-                        {m.team1Score ?? 0}-{m.team2Score ?? 0}
-                      </span>
-                      <p className="truncate text-sm font-semibold text-zinc-500">
-                        {m.team2.map((p) => p.fullName).join(" / ")}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Panel>
-          </div>
-        </>
-      )}
-
-      <RecordResultDialog
-        match={scoringMatch}
-        sessionId={session.sessionId}
-        onClose={() => setScoringMatch(null)}
-        onRecorded={() => {
-          setScoringMatch(null);
-          void loadMatches(session.sessionId, { silent: true });
-        }}
-      />
-    </AppShell>
-  );
-}
-
-function RecordResultDialog({
-  match,
-  sessionId,
-  onClose,
-  onRecorded,
-}: {
-  match: MatchDto | null;
-  sessionId: number;
-  onClose: () => void;
-  onRecorded: () => void;
-}) {
-  const [team1Score, setTeam1Score] = useState("");
-  const [team2Score, setTeam2Score] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setTeam1Score("");
-    setTeam2Score("");
-    setError(null);
-  }, [match]);
-
-  if (!match) return null;
-
-  const handleSubmit = async () => {
-    const t1 = Number(team1Score);
-    const t2 = Number(team2Score);
-    if (!Number.isFinite(t1) || !Number.isFinite(t2) || t1 < 0 || t2 < 0) {
-      setError("Enter a valid, non-negative score for both teams.");
-      return;
-    }
-    if (match.courtNumber == null) {
-      setError("This match has no court number and can't be recorded.");
-      return;
-    }
-
-    setSubmitting(true);
-    setError(null);
-    try {
-      await recordMatchResult(sessionId, {
-        courtNumber: match.courtNumber,
-        team1PlayerIds: match.team1.map((p) => p.playerId),
-        team2PlayerIds: match.team2.map((p) => p.playerId),
-        team1Score: t1,
-        team2Score: t2,
-      });
-      onRecorded();
-    } catch {
-      setError("Couldn't record that result. Double-check the scores and try again.");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Record result — Court {match.courtNumber ?? "?"}</DialogTitle>
-        </DialogHeader>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <p className="mb-1 truncate text-sm font-semibold">
-              {match.team1.map((p) => p.fullName).join(" / ")}
-            </p>
-            <Input
-              type="number"
-              min={0}
-              inputMode="numeric"
-              value={team1Score}
-              onChange={(e) => setTeam1Score(e.target.value)}
-              placeholder="Score"
-            />
-          </div>
-          <div>
-            <p className="mb-1 truncate text-sm font-semibold">
-              {match.team2.map((p) => p.fullName).join(" / ")}
-            </p>
-            <Input
-              type="number"
-              min={0}
-              inputMode="numeric"
-              value={team2Score}
-              onChange={(e) => setTeam2Score(e.target.value)}
-              placeholder="Score"
-            />
-          </div>
-        </div>
-
-        {error && <p className="text-sm text-red-500">{error}</p>}
-
-        <DialogFooter>
-          <DialogClose asChild>
-            <Button variant="outline" disabled={submitting}>
-              Cancel
-            </Button>
-          </DialogClose>
-          <Button onClick={handleSubmit} disabled={submitting}>
-            {submitting ? "Saving…" : "Save result"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-</file>
-
 <file path="src/pages/Queue.tsx">
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Loader2, Shuffle, Lock, Unlock, ArrowLeftRight, Repeat, X, Pencil } from "lucide-react";
 import { AppShell, PageHeader, Panel } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
@@ -8222,9 +8597,9 @@ import {
 import type { SessionDto, SessionPlayerDto } from "@/services/sessions";
 import type { QueueEntryDto, MatchDto } from "@/services/matches";
 
-
-
 export default function QueuePage() {
+  const [searchParams] = useSearchParams();
+
   const [activeSessions, setActiveSessions] = useState<SessionDto[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<number | null>(null);
   const [sessionsLoading, setSessionsLoading] = useState(true);
@@ -8252,11 +8627,19 @@ export default function QueuePage() {
       .then((all) => {
         const active = all.filter((s) => s.status === "Active");
         setActiveSessions(active);
-        if (active.length > 0) setSelectedSessionId(active[0].sessionId);
+
+        const requestedId = Number(searchParams.get("sessionId"));
+        const requestedSession = active.find((s) => s.sessionId === requestedId);
+
+        if (requestedSession) {
+          setSelectedSessionId(requestedSession.sessionId);
+        } else if (active.length > 0) {
+          setSelectedSessionId(active[0].sessionId);
+        }
       })
       .catch(() => setError("Couldn't load sessions."))
       .finally(() => setSessionsLoading(false));
-  }, []);
+  }, [searchParams]);
 
   const loadSessionData = async (sessionId: number, opts?: { silent?: boolean }) => {
     if (!opts?.silent) setInitialLoading(true);
@@ -8291,16 +8674,30 @@ export default function QueuePage() {
       m.team1.forEach((p) => ids.add(p.playerId));
       m.team2.forEach((p) => ids.add(p.playerId));
     });
+    return ids;
+  }, [activeMatches]);
+
+  // Separate from inMatchPlayerIds on purpose — a player slotted into a "Next Up"
+  // match hasn't actually started playing yet, so lumping them in with players who
+  // are genuinely mid-match was misleading (an organizer skimming the list could think
+  // a court had already finished when really it was just reserved for later).
+  const nextUpPlayerIds = useMemo(() => {
+    const ids = new Set<number>();
     nextUpMatches.forEach((m) => {
       m.team1.forEach((p) => ids.add(p.playerId));
       m.team2.forEach((p) => ids.add(p.playerId));
     });
     return ids;
-  }, [activeMatches, nextUpMatches]);
+  }, [nextUpMatches]);
 
   const inMatchPlayers = useMemo(
     () => sessionPlayers.filter((sp) => inMatchPlayerIds.has(sp.playerId)),
     [sessionPlayers, inMatchPlayerIds]
+  );
+
+  const reservedNextUpPlayers = useMemo(
+    () => sessionPlayers.filter((sp) => nextUpPlayerIds.has(sp.playerId)),
+    [sessionPlayers, nextUpPlayerIds]
   );
 
   const lockedPartnerByPlayerId = useMemo(() => {
@@ -8589,6 +8986,8 @@ export default function QueuePage() {
             <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-dark">Waiting</p>
             <p className="mt-2 text-5xl font-bold tabular-nums">{queue.length}</p>
             <div className="mt-6 space-y-2">
+              <StatRow label="Total players in session" value={String(sessionPlayers.length)} />
+              <StatRow label="Next up match players" value={String(nextUpPlayerIds.size)} />
               <StatRow label="In a match" value={String(inMatchPlayers.length)} />
               <StatRow label="Benched" value={String(benched.length)} />
               <StatRow label="Active courts" value={String(activeMatches.length)} />
@@ -8600,7 +8999,7 @@ export default function QueuePage() {
             {queue.length === 0 ? (
               <p className="text-sm text-zinc-400">No one's in the queue yet.</p>
             ) : (
-              <div className="divide-y divide-zinc-100">
+              <div className="max-h-96 divide-y divide-zinc-100 overflow-y-auto">
                 {queue.map((q, i) => {
                   const isPicking = lockingPlayerId !== null;
                   const isPickingThis = lockingPlayerId === q.playerId;
@@ -8678,12 +9077,12 @@ export default function QueuePage() {
             )}
           </Panel>
 
-          <Panel className="col-span-12">
+          <Panel className="col-span-12 lg:col-span-4">
             <h2 className="mb-4 text-sm font-semibold">On the bench</h2>
             {benched.length === 0 ? (
               <p className="text-sm text-zinc-400">No one's benched.</p>
             ) : (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="flex max-h-80 flex-col gap-2 overflow-y-auto">
                 {benched.map((sp) => (
                   <div
                     key={sp.playerId}
@@ -8708,10 +9107,24 @@ export default function QueuePage() {
           </Panel>
 
           {inMatchPlayers.length > 0 && (
-            <Panel className="col-span-12">
-              <h2 className="mb-4 text-sm font-semibold">Players — In a Match ({inMatchPlayers.length})</h2>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            <Panel className="col-span-12 lg:col-span-4">
+              <h2 className="mb-4 text-sm font-semibold">In a Match ({inMatchPlayers.length})</h2>
+              <div className="flex max-h-72 flex-col gap-2 overflow-y-auto">
                 {inMatchPlayers.map((sp) => (
+                  <div key={sp.playerId} className="rounded-xl px-3 py-2 ring-1 ring-zinc-100">
+                    <p className="truncate text-sm font-medium">{sp.fullName}</p>
+                    <p className="text-xs text-zinc-400">{sp.skillCategory}</p>
+                  </div>
+                ))}
+              </div>
+            </Panel>
+          )}
+
+          {reservedNextUpPlayers.length > 0 && (
+            <Panel className="col-span-12 lg:col-span-4">
+              <h2 className="mb-4 text-sm font-semibold">Reserved — Next Up ({reservedNextUpPlayers.length})</h2>
+              <div className="flex max-h-72 flex-col gap-2 overflow-y-auto">
+                {reservedNextUpPlayers.map((sp) => (
                   <div key={sp.playerId} className="rounded-xl px-3 py-2 ring-1 ring-zinc-100">
                     <p className="truncate text-sm font-medium">{sp.fullName}</p>
                     <p className="text-xs text-zinc-400">{sp.skillCategory}</p>
@@ -8821,6 +9234,564 @@ function StatRow({ label, value }: { label: string; value: string }) {
       <p className="truncate text-xs text-zinc-500">{label}</p>
       <p className="shrink-0 text-sm font-bold tabular-nums">{value}</p>
     </div>
+  );
+}
+</file>
+
+<file path="src/pages/Matches.tsx">
+import { useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { Loader2, Shuffle, ArrowLeftRight, History } from "lucide-react";
+import { AppShell, PageHeader, Panel } from "@/components/app-shell";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogClose,
+} from "@/components/ui/dialog";
+import { getActiveSession, getSessionById } from "@/services/sessions";
+import {
+  getActiveMatches,
+  getCompletedMatches,
+  recordMatchResult,
+  smartMixCourt,
+  swapMatchTeams,
+  getQueue,
+  getNextUpMatches,
+} from "@/services/matches";
+import type { SessionDto } from "@/services/sessions";
+import type { MatchDto, QueueEntryDto } from "@/services/matches";
+
+const CARD_WIDTH = 340;
+const GAP = 24;
+
+function wrapperMaxWidth(courtCount: number) {
+  if (courtCount <= 1) return CARD_WIDTH;
+  if (courtCount === 2) return CARD_WIDTH * 2 + GAP;
+  if (courtCount === 3) return CARD_WIDTH * 3 + GAP * 2;
+  return CARD_WIDTH * 2 + GAP; // 4+: force exactly 2 per row
+}
+
+export default function MatchesPage() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const requestedSessionId = Number(searchParams.get("sessionId")) || null;
+
+  const [session, setSession] = useState<SessionDto | null>(null);
+  const [sessionLoading, setSessionLoading] = useState(true);
+  const [sessionNotFound, setSessionNotFound] = useState(false);
+
+  const [activeMatches, setActiveMatches] = useState<MatchDto[]>([]);
+  const [completedMatches, setCompletedMatches] = useState<MatchDto[]>([]);
+  const [queue, setQueue] = useState<QueueEntryDto[]>([]);
+  const [nextUpMatches, setNextUpMatches] = useState<MatchDto[]>([]);
+  const [dataLoading, setDataLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const [scoringMatch, setScoringMatch] = useState<MatchDto | null>(null);
+  const [busyCourt, setBusyCourt] = useState<number | null>(null);
+
+  // Swapping two players between teams on a live (in-progress) match
+  const [swappingMatch, setSwappingMatch] = useState<MatchDto | null>(null);
+  const [selectedForSwap, setSelectedForSwap] = useState<number | null>(null);
+  const [swapBusy, setSwapBusy] = useState(false);
+  const [swapError, setSwapError] = useState<string | null>(null);
+
+  const isLive = session?.status === "Active";
+
+  useEffect(() => {
+    setSessionNotFound(false);
+
+    const load = requestedSessionId ? getSessionById(requestedSessionId) : getActiveSession();
+
+    load
+      .then((s) => {
+        if (s === null) {
+          setSessionNotFound(true);
+          return;
+        }
+        setSession(s);
+      })
+      .catch(() => {
+        // getSessionById 404s as a thrown error, not a null return — either way,
+        // treat it as "nothing to show" rather than a generic error banner.
+        setSessionNotFound(true);
+      })
+      .finally(() => setSessionLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedSessionId]);
+
+  const loadMatches = async (sessionId: number, live: boolean, opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setDataLoading(true);
+    setError(null);
+    try {
+      if (live) {
+        const [active, completed, queueData, nextUp] = await Promise.all([
+          getActiveMatches(sessionId),
+          getCompletedMatches(sessionId),
+          getQueue(sessionId),
+          getNextUpMatches(sessionId),
+        ]);
+        setActiveMatches(active);
+        setCompletedMatches(completed);
+        setQueue(queueData);
+        setNextUpMatches(nextUp);
+      } else {
+        // Ended session: only the final results matter — skip the live-only calls
+        // (queue/next-up/active are meaningless once a session is over).
+        const completed = await getCompletedMatches(sessionId);
+        setCompletedMatches(completed);
+        setActiveMatches([]);
+        setQueue([]);
+        setNextUpMatches([]);
+      }
+    } catch {
+      setError("Couldn't load matches for this session.");
+    } finally {
+      if (!opts?.silent) setDataLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (session) void loadMatches(session.sessionId, isLive);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session]);
+
+  const handleAutoMix = async (courtNumber: number) => {
+    if (!session) return;
+    setBusyCourt(courtNumber);
+    setError(null);
+    try {
+      await smartMixCourt(session.sessionId, courtNumber);
+      await loadMatches(session.sessionId, true, { silent: true });
+    } catch (err) {
+      const apiErr = err as { message?: string };
+      setError(apiErr.message ?? "Couldn't fill this court — there may not be enough players queued.");
+    } finally {
+      setBusyCourt(null);
+    }
+  };
+
+  const openSwap = (match: MatchDto) => {
+    setSwappingMatch(match);
+    setSelectedForSwap(null);
+    setSwapError(null);
+  };
+
+  const closeSwap = () => {
+    setSwappingMatch(null);
+    setSelectedForSwap(null);
+    setSwapError(null);
+  };
+
+  const handlePlayerClickForSwap = async (playerId: number, teamNumber: number) => {
+    if (!session || !swappingMatch) return;
+
+    if (selectedForSwap === null) {
+      setSelectedForSwap(playerId);
+      return;
+    }
+
+    if (selectedForSwap === playerId) {
+      setSelectedForSwap(null);
+      return;
+    }
+
+    const selectedTeam = [...swappingMatch.team1, ...swappingMatch.team2].find(
+      (p) => p.playerId === selectedForSwap
+    )?.teamNumber;
+    if (selectedTeam === teamNumber) {
+      // Same team — just move the selection instead of swapping.
+      setSelectedForSwap(playerId);
+      return;
+    }
+
+    setSwapBusy(true);
+    setSwapError(null);
+    try {
+      const updated = await swapMatchTeams(session.sessionId, swappingMatch.matchId, selectedForSwap, playerId);
+      setSwappingMatch(updated);
+      setActiveMatches((prev) => prev.map((m) => (m.matchId === updated.matchId ? updated : m)));
+      setSelectedForSwap(null);
+    } catch (err) {
+      const apiErr = err as { message?: string };
+      setSwapError(apiErr.message ?? "Couldn't swap those two players.");
+    } finally {
+      setSwapBusy(false);
+    }
+  };
+
+  if (sessionLoading) {
+    return (
+      <AppShell>
+        <div className="flex items-center gap-2 text-sm text-zinc-400">
+          <Loader2 className="size-4 animate-spin" /> Loading matches…
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (!session || sessionNotFound) {
+    return (
+      <AppShell>
+        <PageHeader eyebrow={requestedSessionId ? "Match history" : "Live scoreboard"} title="Matches" />
+        <Panel className="text-center text-sm text-zinc-400">
+          {requestedSessionId
+            ? "That session couldn't be found."
+            : "No active session right now. Start a session to see live courts and match results here."}
+        </Panel>
+      </AppShell>
+    );
+  }
+
+  const matchByCourt = new Map(activeMatches.map((m) => [m.courtNumber, m]));
+  const courts = Array.from({ length: session.numberOfCourts }, (_, i) => i + 1);
+
+  return (
+    <AppShell>
+      <PageHeader
+        eyebrow={isLive ? "Live scoreboard" : "Match history"}
+        title="Matches"
+        subtitle={
+          isLive
+            ? `${activeMatches.length} of ${session.numberOfCourts} court${session.numberOfCourts === 1 ? "" : "s"} in play, ${completedMatches.length} match${completedMatches.length === 1 ? "" : "es"} recorded this session.`
+            : `${session.sessionName} • ${completedMatches.length} match${completedMatches.length === 1 ? "" : "es"} played • Session ended`
+        }
+      />
+
+      {error && <p className="mb-4 text-sm text-red-500">{error}</p>}
+
+      {dataLoading ? (
+        <div className="flex items-center gap-2 text-sm text-zinc-400">
+          <Loader2 className="size-4 animate-spin" /> Loading courts…
+        </div>
+      ) : (
+        <>
+          {isLive && (
+          <div className="mx-auto flex flex-wrap justify-center gap-6" style={{ maxWidth: wrapperMaxWidth(courts.length) }}>
+            {courts.map((courtNumber) => {
+              const match = matchByCourt.get(courtNumber);
+
+              if (match) {
+                return (
+                  <div
+                    key={courtNumber}
+                    style={{ width: CARD_WIDTH }}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => navigate("/queue")}
+                    className="relative cursor-pointer overflow-hidden rounded-[20px] bg-[#8ba668] p-4 text-white ring-1 ring-black/10 transition-transform hover:scale-[1.01]"
+                  >
+                    <div className="relative">
+                      <div className="mb-4 flex items-center justify-between">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white">
+                          Court {courtNumber}
+                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openSwap(match);
+                            }}
+                            aria-label="Swap teams"
+                            title="Swap teams"
+                            className="grid size-6 place-items-center rounded-full bg-white/20 text-white hover:bg-white/30"
+                          >
+                            <ArrowLeftRight className="size-3.5" />
+                          </button>
+                          <span className="pulse-dot rounded-full bg-red-500 px-2 py-0.5 text-[9px] font-bold uppercase text-white">
+                            Live
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Court view: each side split top/bottom, wide light-blue "kitchen" strip with a thin net line down the middle */}
+                      <div className="grid grid-cols-[1fr_56px_1fr] overflow-hidden rounded-xl border-[4px] border-white">
+                        <div className="grid grid-rows-2 divide-y-[3px] divide-white bg-[#4a7a9c]">
+                          {match.team1.map((p) => (
+                            <div key={p.playerId} className="flex items-center justify-center p-2">
+                              <p className="truncate text-sm font-bold text-white">{p.fullName}</p>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="relative bg-[#5ec2dd]">
+                          <div className="absolute inset-y-0 left-1/2 w-[2px] -translate-x-1/2 bg-zinc-900" />
+                        </div>
+                        <div className="grid grid-rows-2 divide-y-[3px] divide-white bg-[#4a7a9c]">
+                          {match.team2.map((p) => (
+                            <div key={p.playerId} className="flex items-center justify-center p-2">
+                              <p className="truncate text-sm font-bold text-white">{p.fullName}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <Button
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setScoringMatch(match);
+                        }}
+                        className="mt-4 w-full rounded-full bg-white text-zinc-900 hover:bg-zinc-100"
+                      >
+                        Record Result
+                      </Button>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div
+                  key={courtNumber}
+                  style={{ width: CARD_WIDTH }}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => navigate("/queue")}
+                  className="relative flex cursor-pointer flex-col items-center justify-center rounded-[20px] border-2 border-dashed border-zinc-200 bg-zinc-50 p-6 text-center transition-colors hover:border-brand hover:bg-brand-soft/40"
+                >
+                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400">
+                    Court {courtNumber}
+                  </p>
+
+                  {nextUpMatches[0] ? (
+                    <div className="mt-2 space-y-0.5">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">Up next</p>
+                      <p className="truncate text-xs font-semibold text-zinc-600">
+                        {nextUpMatches[0].team1.map((p) => p.fullName).join(" / ")}
+                      </p>
+                      <p className="truncate text-xs font-semibold text-zinc-600">
+                        {nextUpMatches[0].team2.map((p) => p.fullName).join(" / ")}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-sm font-semibold text-zinc-500">Available</p>
+                  )}
+
+                  <Button
+                    size="sm"
+                    disabled={busyCourt === courtNumber || queue.length < 4}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleAutoMix(courtNumber);
+                    }}
+                    className="mt-4 w-full rounded-full"
+                  >
+                    <Shuffle className="size-3.5" />
+                    {busyCourt === courtNumber ? "Mixing…" : "Auto Mix"}
+                  </Button>
+                  {queue.length < 4 && (
+                    <p className="mt-2 text-[11px] text-zinc-400">Need 4+ in queue to fill a court</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          )}
+
+          <div className="mt-6">
+            <Panel>
+              <h2 className="mb-4 text-sm font-semibold">
+                <History className="mr-1.5 inline size-4 text-zinc-400" />
+                {isLive ? "Recent results" : "Final results"}
+              </h2>
+              {completedMatches.length === 0 ? (
+                <p className="text-sm text-zinc-400">
+                  {isLive ? "No completed matches yet this session." : "No matches were recorded in this session."}
+                </p>
+              ) : (
+                <div className="divide-y divide-zinc-100">
+                  {completedMatches.map((m) => (
+                    <div
+                      key={m.matchId}
+                      className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 py-3"
+                    >
+                      <p className="truncate text-right text-sm font-semibold">
+                        {m.team1.map((p) => p.fullName).join(" / ")}
+                      </p>
+                      <span className="shrink-0 rounded-lg bg-brand-soft px-3 py-1 text-sm font-bold tabular-nums text-brand-dark">
+                        {m.team1Score ?? 0}-{m.team2Score ?? 0}
+                      </span>
+                      <p className="truncate text-sm font-semibold text-zinc-500">
+                        {m.team2.map((p) => p.fullName).join(" / ")}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Panel>
+          </div>
+        </>
+      )}
+
+      <RecordResultDialog
+        match={scoringMatch}
+        sessionId={session.sessionId}
+        onClose={() => setScoringMatch(null)}
+        onRecorded={() => {
+          setScoringMatch(null);
+          void loadMatches(session.sessionId, true, { silent: true });
+        }}
+      />
+
+      <Dialog open={!!swappingMatch} onOpenChange={(o) => !o && closeSwap()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Swap teams — Court {swappingMatch?.courtNumber ?? "?"}</DialogTitle>
+            <DialogDescription>Tap two players on opposite teams to swap sides.</DialogDescription>
+          </DialogHeader>
+
+          {swappingMatch && (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                {[1, 2].map((teamNumber) => (
+                  <div key={teamNumber}>
+                    <p className="mb-2 text-center text-xs font-bold uppercase tracking-wider text-zinc-400">
+                      Team {teamNumber}
+                    </p>
+                    <div className="flex flex-col gap-1.5">
+                      {(teamNumber === 1 ? swappingMatch.team1 : swappingMatch.team2).map((p) => (
+                        <button
+                          key={p.playerId}
+                          onClick={() => handlePlayerClickForSwap(p.playerId, teamNumber)}
+                          disabled={swapBusy}
+                          className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-left text-sm font-medium disabled:opacity-50 ${
+                            selectedForSwap === p.playerId ? "bg-brand-soft ring-1 ring-brand" : "bg-zinc-50"
+                          }`}
+                        >
+                          <ArrowLeftRight className="size-3 shrink-0 text-zinc-400" />
+                          <span className="truncate">{p.fullName}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {swapError && <p className="mt-3 text-sm text-red-500">{swapError}</p>}
+            </>
+          )}
+
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">Done</Button>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </AppShell>
+  );
+}
+
+function RecordResultDialog({
+  match,
+  sessionId,
+  onClose,
+  onRecorded,
+}: {
+  match: MatchDto | null;
+  sessionId: number;
+  onClose: () => void;
+  onRecorded: () => void;
+}) {
+  const [team1Score, setTeam1Score] = useState("");
+  const [team2Score, setTeam2Score] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setTeam1Score("");
+    setTeam2Score("");
+    setError(null);
+  }, [match]);
+
+  if (!match) return null;
+
+  const handleSubmit = async () => {
+    const t1 = Number(team1Score);
+    const t2 = Number(team2Score);
+    if (!Number.isFinite(t1) || !Number.isFinite(t2) || t1 < 0 || t2 < 0) {
+      setError("Enter a valid, non-negative score for both teams.");
+      return;
+    }
+    if (match.courtNumber == null) {
+      setError("This match has no court number and can't be recorded.");
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+    try {
+      await recordMatchResult(sessionId, {
+        courtNumber: match.courtNumber,
+        team1PlayerIds: match.team1.map((p) => p.playerId),
+        team2PlayerIds: match.team2.map((p) => p.playerId),
+        team1Score: t1,
+        team2Score: t2,
+      });
+      onRecorded();
+    } catch {
+      setError("Couldn't record that result. Double-check the scores and try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Record result — Court {match.courtNumber ?? "?"}</DialogTitle>
+        </DialogHeader>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <p className="mb-1 truncate text-sm font-semibold">
+              {match.team1.map((p) => p.fullName).join(" / ")}
+            </p>
+            <Input
+              type="number"
+              min={0}
+              inputMode="numeric"
+              value={team1Score}
+              onChange={(e) => setTeam1Score(e.target.value)}
+              placeholder="Score"
+            />
+          </div>
+          <div>
+            <p className="mb-1 truncate text-sm font-semibold">
+              {match.team2.map((p) => p.fullName).join(" / ")}
+            </p>
+            <Input
+              type="number"
+              min={0}
+              inputMode="numeric"
+              value={team2Score}
+              onChange={(e) => setTeam2Score(e.target.value)}
+              placeholder="Score"
+            />
+          </div>
+        </div>
+
+        {error && <p className="text-sm text-red-500">{error}</p>}
+
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant="outline" disabled={submitting}>
+              Cancel
+            </Button>
+          </DialogClose>
+          <Button onClick={handleSubmit} disabled={submitting}>
+            {submitting ? "Saving…" : "Save result"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 </file>

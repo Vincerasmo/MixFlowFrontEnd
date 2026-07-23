@@ -1,17 +1,35 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { AppShell, PageHeader, Panel } from "@/components/app-shell";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { getActiveSessionLeaderboard, getOverallLeaderboard } from "@/services/leaderboard";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectGroup,
+  SelectLabel,
+  SelectItem,
+} from "@/components/ui/select";
+import { getSessionLeaderboard, getOverallLeaderboard } from "@/services/leaderboard";
 import type { LeaderboardPlayerDto } from "@/services/leaderboard";
+import { getMySessions } from "@/services/sessions";
+import type { SessionDto } from "@/services/sessions";
 
 function initials(name: string) {
   return name.split(" ").map((n) => n[0]).join("");
 }
 
+function formatSessionDate(iso: string) {
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
 export default function LeaderboardPage() {
-  const [sessionName, setSessionName] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<SessionDto[]>([]);
+  const [selectedSessionId, setSelectedSessionId] = useState<number | null>(null);
   const [sessionRankings, setSessionRankings] = useState<LeaderboardPlayerDto[]>([]);
+  const [sessionSwitching, setSessionSwitching] = useState(false);
+
   const [overallRankings, setOverallRankings] = useState<LeaderboardPlayerDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -19,14 +37,18 @@ export default function LeaderboardPage() {
   useEffect(() => {
     let cancelled = false;
 
-    Promise.all([getActiveSessionLeaderboard(), getOverallLeaderboard()])
-      .then(([activeSession, overall]) => {
+    Promise.all([getMySessions(), getOverallLeaderboard()])
+      .then(([allSessions, overall]) => {
         if (cancelled) return;
-        if (activeSession !== null) {
-          setSessionName(activeSession.sessionName);
-          setSessionRankings(activeSession.leaderboard);
-        }
+
+        const sorted = [...allSessions].sort(
+          (a, b) => new Date(b.sessionDate).getTime() - new Date(a.sessionDate).getTime()
+        );
+        setSessions(sorted);
         setOverallRankings(overall);
+
+        const defaultSession = sorted.find((s) => s.status === "Active") ?? sorted[0];
+        if (defaultSession) setSelectedSessionId(defaultSession.sessionId);
       })
       .catch(() => {
         if (!cancelled) setError("Couldn't load the leaderboard.");
@@ -39,6 +61,35 @@ export default function LeaderboardPage() {
       cancelled = true;
     };
   }, []);
+
+  // Fetch the picked session's rankings whenever the selection changes.
+  useEffect(() => {
+    if (selectedSessionId === null) return;
+
+    let cancelled = false;
+    setSessionSwitching(true);
+    getSessionLeaderboard(selectedSessionId)
+      .then((rankings) => {
+        if (!cancelled) setSessionRankings(rankings);
+      })
+      .catch(() => {
+        if (!cancelled) setError("Couldn't load that session's leaderboard.");
+      })
+      .finally(() => {
+        if (!cancelled) setSessionSwitching(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSessionId]);
+
+  const activeSessions = useMemo(() => sessions.filter((s) => s.status === "Active"), [sessions]);
+  const pastSessions = useMemo(() => sessions.filter((s) => s.status !== "Active"), [sessions]);
+  const selectedSession = useMemo(
+    () => sessions.find((s) => s.sessionId === selectedSessionId) ?? null,
+    [sessions, selectedSessionId]
+  );
 
   if (loading) {
     return (
@@ -70,15 +121,59 @@ export default function LeaderboardPage() {
         </TabsList>
 
         <TabsContent value="session">
-          <LeaderboardView
-            rankings={sessionRankings}
-            subtitle={sessionName ? sessionName : undefined}
-            emptyMessage={
-              sessionName === null
-                ? "No active session right now. Start a session to see live standings here."
-                : "No results yet for this session — the leaderboard fills in as matches are recorded."
-            }
-          />
+          {sessions.length === 0 ? (
+            <Panel className="mt-4 text-center text-sm text-zinc-400">
+              No sessions yet. Start a session to see standings here.
+            </Panel>
+          ) : (
+            <>
+              <div className="mt-4 flex items-center gap-2">
+                <Select
+                  value={selectedSessionId?.toString() ?? undefined}
+                  onValueChange={(v) => setSelectedSessionId(Number(v))}
+                >
+                  <SelectTrigger className="w-full sm:w-72">
+                    <SelectValue placeholder="Choose a session" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {activeSessions.length > 0 && (
+                      <SelectGroup>
+                        <SelectLabel>Active now</SelectLabel>
+                        {activeSessions.map((s) => (
+                          <SelectItem key={s.sessionId} value={s.sessionId.toString()}>
+                            {s.sessionName}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    )}
+                    {pastSessions.length > 0 && (
+                      <SelectGroup>
+                        <SelectLabel>Past sessions</SelectLabel>
+                        {pastSessions.map((s) => (
+                          <SelectItem key={s.sessionId} value={s.sessionId.toString()}>
+                            {s.sessionName} — {formatSessionDate(s.sessionDate)}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    )}
+                  </SelectContent>
+                </Select>
+                {sessionSwitching && <Loader2 className="size-4 shrink-0 animate-spin text-zinc-400" />}
+              </div>
+
+              <LeaderboardView
+                rankings={sessionRankings}
+                subtitle={
+                  selectedSession
+                    ? `${selectedSession.sessionName} · ${
+                        selectedSession.status === "Active" ? "In progress" : formatSessionDate(selectedSession.sessionDate)
+                      }`
+                    : undefined
+                }
+                emptyMessage="No results yet for this session — the leaderboard fills in as matches are recorded."
+              />
+            </>
+          )}
         </TabsContent>
 
         <TabsContent value="overall">

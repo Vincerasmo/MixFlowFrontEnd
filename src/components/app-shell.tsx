@@ -33,12 +33,26 @@ export function AppShell({ children }: { children: ReactNode }) {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-50 font-sans text-zinc-900">
+    <div className="relative min-h-screen overflow-x-hidden bg-linear-to-b from-zinc-50 via-white to-brand-soft/30 font-sans text-zinc-900">
+      {/* Deliberately restrained — a couple of very soft, static color washes plus a
+          faint dot texture. No competing animated blobs, no strong colors behind
+          text: white Panel cards need to stay the clear visual focus on every page. */}
+      <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+        <div className="absolute -left-32 -top-32 size-[26rem] rounded-full bg-brand/10 blur-3xl" />
+        <div className="absolute -bottom-40 -right-32 size-[30rem] rounded-full bg-ball/10 blur-3xl" />
+        <div
+          className="absolute inset-0 opacity-[0.035]"
+          style={{
+            backgroundImage: "radial-gradient(currentColor 1px, transparent 1px)",
+            backgroundSize: "22px 22px",
+          }}
+        />
+      </div>
       <nav className="sticky top-0 z-50 border-b border-zinc-200 bg-white/85 backdrop-blur-md">
         <div className="mx-auto grid max-w-7xl grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3 sm:px-6">
           <div className="flex min-w-0 items-center gap-4 lg:gap-8">
             <Link to="/dashboard" className="flex shrink-0 items-center gap-2">
-              <PickleballIcon className="size-8" />
+              <PickleballIcon spin className="size-8" />
               <span className="text-base font-bold tracking-tight">
                 MixFlow<span className="text-brand-dark">.</span>
               </span>
@@ -109,7 +123,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           })}
         </div>
       </nav>
-      <main className="mx-auto max-w-7xl p-4 sm:p-6">{children}</main>
+      <main className="relative z-10 mx-auto max-w-7xl p-4 sm:p-6">{children}</main>
     </div>
   );
 }

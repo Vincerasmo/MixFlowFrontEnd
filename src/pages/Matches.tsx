@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Loader2, Shuffle, ArrowLeftRight } from "lucide-react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { Loader2, Shuffle, ArrowLeftRight, History } from "lucide-react";
 import { AppShell, PageHeader, Panel } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,7 +13,7 @@ import {
   DialogFooter,
   DialogClose,
 } from "@/components/ui/dialog";
-import { getActiveSession } from "@/services/sessions";
+import { getActiveSession, getSessionById } from "@/services/sessions";
 import {
   getActiveMatches,
   getCompletedMatches,
@@ -38,8 +38,12 @@ function wrapperMaxWidth(courtCount: number) {
 
 export default function MatchesPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const requestedSessionId = Number(searchParams.get("sessionId")) || null;
+
   const [session, setSession] = useState<SessionDto | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
+  const [sessionNotFound, setSessionNotFound] = useState(false);
 
   const [activeMatches, setActiveMatches] = useState<MatchDto[]>([]);
   const [completedMatches, setCompletedMatches] = useState<MatchDto[]>([]);
@@ -57,27 +61,54 @@ export default function MatchesPage() {
   const [swapBusy, setSwapBusy] = useState(false);
   const [swapError, setSwapError] = useState<string | null>(null);
 
-  useEffect(() => {
-    getActiveSession()
-      .then(setSession)
-      .catch(() => setError("Couldn't load your active session."))
-      .finally(() => setSessionLoading(false));
-  }, []);
+  const isLive = session?.status === "Active";
 
-  const loadMatches = async (sessionId: number, opts?: { silent?: boolean }) => {
+  useEffect(() => {
+    setSessionNotFound(false);
+
+    const load = requestedSessionId ? getSessionById(requestedSessionId) : getActiveSession();
+
+    load
+      .then((s) => {
+        if (s === null) {
+          setSessionNotFound(true);
+          return;
+        }
+        setSession(s);
+      })
+      .catch(() => {
+        // getSessionById 404s as a thrown error, not a null return — either way,
+        // treat it as "nothing to show" rather than a generic error banner.
+        setSessionNotFound(true);
+      })
+      .finally(() => setSessionLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedSessionId]);
+
+  const loadMatches = async (sessionId: number, live: boolean, opts?: { silent?: boolean }) => {
     if (!opts?.silent) setDataLoading(true);
     setError(null);
     try {
-      const [active, completed, queueData, nextUp] = await Promise.all([
-        getActiveMatches(sessionId),
-        getCompletedMatches(sessionId),
-        getQueue(sessionId),
-        getNextUpMatches(sessionId),
-      ]);
-      setActiveMatches(active);
-      setCompletedMatches(completed);
-      setQueue(queueData);
-      setNextUpMatches(nextUp);
+      if (live) {
+        const [active, completed, queueData, nextUp] = await Promise.all([
+          getActiveMatches(sessionId),
+          getCompletedMatches(sessionId),
+          getQueue(sessionId),
+          getNextUpMatches(sessionId),
+        ]);
+        setActiveMatches(active);
+        setCompletedMatches(completed);
+        setQueue(queueData);
+        setNextUpMatches(nextUp);
+      } else {
+        // Ended session: only the final results matter — skip the live-only calls
+        // (queue/next-up/active are meaningless once a session is over).
+        const completed = await getCompletedMatches(sessionId);
+        setCompletedMatches(completed);
+        setActiveMatches([]);
+        setQueue([]);
+        setNextUpMatches([]);
+      }
     } catch {
       setError("Couldn't load matches for this session.");
     } finally {
@@ -86,7 +117,8 @@ export default function MatchesPage() {
   };
 
   useEffect(() => {
-    if (session) void loadMatches(session.sessionId);
+    if (session) void loadMatches(session.sessionId, isLive);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
   const handleAutoMix = async (courtNumber: number) => {
@@ -95,7 +127,7 @@ export default function MatchesPage() {
     setError(null);
     try {
       await smartMixCourt(session.sessionId, courtNumber);
-      await loadMatches(session.sessionId, { silent: true });
+      await loadMatches(session.sessionId, true, { silent: true });
     } catch (err) {
       const apiErr = err as { message?: string };
       setError(apiErr.message ?? "Couldn't fill this court — there may not be enough players queued.");
@@ -163,12 +195,14 @@ export default function MatchesPage() {
     );
   }
 
-  if (!session) {
+  if (!session || sessionNotFound) {
     return (
       <AppShell>
-        <PageHeader eyebrow="Live scoreboard" title="Matches" subtitle="No active session right now." />
+        <PageHeader eyebrow={requestedSessionId ? "Match history" : "Live scoreboard"} title="Matches" />
         <Panel className="text-center text-sm text-zinc-400">
-          Start a session to see live courts and match results here.
+          {requestedSessionId
+            ? "That session couldn't be found."
+            : "No active session right now. Start a session to see live courts and match results here."}
         </Panel>
       </AppShell>
     );
@@ -180,9 +214,13 @@ export default function MatchesPage() {
   return (
     <AppShell>
       <PageHeader
-        eyebrow="Live scoreboard"
+        eyebrow={isLive ? "Live scoreboard" : "Match history"}
         title="Matches"
-        subtitle={`${activeMatches.length} of ${session.numberOfCourts} court${session.numberOfCourts === 1 ? "" : "s"} in play, ${completedMatches.length} match${completedMatches.length === 1 ? "" : "es"} recorded this session.`}
+        subtitle={
+          isLive
+            ? `${activeMatches.length} of ${session.numberOfCourts} court${session.numberOfCourts === 1 ? "" : "s"} in play, ${completedMatches.length} match${completedMatches.length === 1 ? "" : "es"} recorded this session.`
+            : `${session.sessionName} • ${completedMatches.length} match${completedMatches.length === 1 ? "" : "es"} played • Session ended`
+        }
       />
 
       {error && <p className="mb-4 text-sm text-red-500">{error}</p>}
@@ -193,6 +231,7 @@ export default function MatchesPage() {
         </div>
       ) : (
         <>
+          {isLive && (
           <div className="mx-auto flex flex-wrap justify-center gap-6" style={{ maxWidth: wrapperMaxWidth(courts.length) }}>
             {courts.map((courtNumber) => {
               const match = matchByCourt.get(courtNumber);
@@ -312,14 +351,20 @@ export default function MatchesPage() {
               );
             })}
           </div>
+          )}
 
           <div className="mt-6">
             <Panel>
-              <h2 className="mb-4 text-sm font-semibold">Recent results</h2>
+              <h2 className="mb-4 text-sm font-semibold">
+                <History className="mr-1.5 inline size-4 text-zinc-400" />
+                {isLive ? "Recent results" : "Final results"}
+              </h2>
               {completedMatches.length === 0 ? (
-                <p className="text-sm text-zinc-400">No completed matches yet this session.</p>
+                <p className="text-sm text-zinc-400">
+                  {isLive ? "No completed matches yet this session." : "No matches were recorded in this session."}
+                </p>
               ) : (
-                <div className="divide-y divide-zinc-100">
+                <div className="max-h-96 divide-y divide-zinc-100 overflow-y-auto">
                   {completedMatches.map((m) => (
                     <div
                       key={m.matchId}
@@ -349,7 +394,7 @@ export default function MatchesPage() {
         onClose={() => setScoringMatch(null)}
         onRecorded={() => {
           setScoringMatch(null);
-          void loadMatches(session.sessionId, { silent: true });
+          void loadMatches(session.sessionId, true, { silent: true });
         }}
       />
 

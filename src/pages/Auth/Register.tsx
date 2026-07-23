@@ -103,15 +103,15 @@ export default function SignUpPage() {
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-linear-to-br from-brand-soft via-zinc-50 to-white font-sans text-zinc-900">
-      <PickleballIcon className="absolute -left-16 -top-16 size-72 opacity-30" />
-      <PickleballIcon className="absolute -right-24 top-1/2 size-96 opacity-20" />
-      <PickleballIcon className="absolute bottom-[-4rem] left-1/3 size-56 opacity-25" />
+      <PickleballIcon className="absolute -left-10 -top-10 size-40 opacity-20 sm:-left-16 sm:-top-16 sm:size-56 sm:opacity-25 lg:size-72 lg:opacity-30" />
+      <PickleballIcon className="absolute -right-12 top-1/2 size-48 opacity-15 sm:-right-20 sm:size-64 sm:opacity-20 lg:size-96" />
+      <PickleballIcon className="absolute -bottom-8 left-1/4 size-32 opacity-15 sm:left-1/3 sm:size-44 sm:opacity-20 lg:size-56 lg:opacity-25" />
 
       <div className="relative flex min-h-screen flex-col items-center justify-center p-6">
         <Card className="w-full max-w-sm rounded-3xl border-none bg-white/90 shadow-xl shadow-brand/10 ring-1 ring-black/5 backdrop-blur">
           <CardHeader className="flex flex-col items-center text-center">
             <div className="ball-bounce mb-4">
-              <PickleballIcon className="size-14" />
+              <PickleballIcon spin className="size-14" />
             </div>
             <CardTitle className="text-2xl font-bold tracking-tight">
               MixFlow<span className="text-brand-dark">.</span>

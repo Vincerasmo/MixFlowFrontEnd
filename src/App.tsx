@@ -8,6 +8,7 @@ import PlayersPage from "./pages/Players";
 import QueuePage from "./pages/Queue";
 import MatchesPage from "./pages/Matches";
 import LeaderboardPage from "./pages/Leaderboard";
+import WatchPage from "./pages/Watch";
 import NotFoundPage from "./pages/NotFound";
 
 export default function App() {
@@ -21,6 +22,8 @@ export default function App() {
       <Route path="/queue" element={<QueuePage />} />
       <Route path="/matches" element={<MatchesPage />} />
       <Route path="/leaderboard" element={<LeaderboardPage />} />
+      {/* Public, no-login spectator view — share this link/QR with players */}
+      <Route path="/watch/:sessionId" element={<WatchPage />} />
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );

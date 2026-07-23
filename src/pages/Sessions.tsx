@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Plus, Loader2, Users, X, Trophy, Medal } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Plus, Loader2, Users, X, Share2, Check, Eye, History, Pencil, MoreVertical, Square } from "lucide-react";
 import { AppShell, PageHeader, Panel } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,22 +14,32 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
+import {
   createSession,
   getMySessions,
+  updateSession,
   endSession,
   addPlayerToSession,
   getSessionPlayers,
   removePlayerFromSession,
 } from "@/services/sessions";
 import { getAllPlayers } from "@/services/players";
-import { getSessionLeaderboard } from "@/services/leaderboard";
 import type { CreateSessionPayload, SessionDto, SessionPlayerDto } from "@/services/sessions";
 import type { PlayerDto } from "@/services/players";
-import type { LeaderboardPlayerDto } from "@/services/leaderboard";
 
-// Same gold / silver / bronze badge treatment as the dashboard's Top Performers panel.
-const medalTone = (rank: number) =>
-  rank === 1 ? "bg-ball" : rank === 2 ? "bg-zinc-300" : rank === 3 ? "bg-amber-600" : "bg-zinc-100 text-zinc-500";
+const SKILL_CATEGORIES = ["Novice", "Intermediate", "Advanced"] as const;
+
+// Same skill-tier color coding as the Players page, so category reads consistently everywhere.
+const TIER_STYLE: Record<string, string> = {
+  Advanced: "bg-ink text-white",
+  Intermediate: "bg-brand text-zinc-900",
+  Novice: "bg-zinc-200 text-zinc-700",
+};
 
 const emptyForm = {
   sessionName: "",
@@ -38,7 +49,7 @@ const emptyForm = {
   numberOfCourts: 4,
 };
 
-// Lock/unlock pairing now lives on the Queue page — that's where the organizer is
+// Lock/unlock pairing lives on the Queue page — that's where the organizer is
 // actually looking when deciding who should play together, and it needs to react to
 // who's currently queued/in-match, which this dialog doesn't track.
 export default function SessionsPage() {
@@ -52,16 +63,23 @@ export default function SessionsPage() {
   const [creating, setCreating] = useState(false);
 
   const [endingId, setEndingId] = useState<number | null>(null);
+  const [copiedSessionId, setCopiedSessionId] = useState<number | null>(null);
+
+  // Edit session (name only — that's all the backend currently accepts)
+  const [editTarget, setEditTarget] = useState<SessionDto | null>(null);
+  const [editForm, setEditForm] = useState(emptyForm);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   // Roster management
   const [rosterSession, setRosterSession] = useState<SessionDto | null>(null);
   const [rosterPlayers, setRosterPlayers] = useState<SessionPlayerDto[]>([]);
   const [allPlayers, setAllPlayers] = useState<PlayerDto[]>([]);
-  const [leaders, setLeaders] = useState<LeaderboardPlayerDto[]>([]);
   const [rosterLoading, setRosterLoading] = useState(false);
   const [rosterError, setRosterError] = useState<string | null>(null);
   const [pendingPlayerId, setPendingPlayerId] = useState<number | null>(null);
   const [addSearch, setAddSearch] = useState("");
+  const [addCategoryFilter, setAddCategoryFilter] = useState<string>("All");
 
   const loadSessions = async () => {
     setLoading(true);
@@ -79,6 +97,18 @@ export default function SessionsPage() {
   useEffect(() => {
     void loadSessions();
   }, []);
+
+  // Live sessions always float to the top, regardless of date — an organizer
+  // actively running a session shouldn't have to scroll past history to find it.
+  const sortedSessions = useMemo(() => {
+    return [...sessions].sort((a, b) => {
+      const aLive = a.status === "Active" ? 1 : 0;
+      const bLive = b.status === "Active" ? 1 : 0;
+      if (aLive !== bLive) return bLive - aLive;
+
+      return new Date(b.sessionDate).getTime() - new Date(a.sessionDate).getTime();
+    });
+  }, [sessions]);
 
   const handleCreate = async (e: FormEvent) => {
     e.preventDefault();
@@ -118,20 +148,72 @@ export default function SessionsPage() {
     }
   };
 
+  // Copies a public, no-login link players can open to watch the live queue,
+  // courts, and leaderboard for this session.
+  const handleCopyWatchLink = async (sessionId: number) => {
+    const url = `${window.location.origin}/watch/${sessionId}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedSessionId(sessionId);
+      setTimeout(() => setCopiedSessionId((current) => (current === sessionId ? null : current)), 2000);
+    } catch {
+      setError("Couldn't copy the link. Please try again.");
+    }
+  };
+
+  const openEditSession = (session: SessionDto) => {
+  setEditTarget(session);
+  setEditForm({
+    sessionName: session.sessionName,
+    sessionDate: session.sessionDate.slice(0, 10),
+    startTime: session.startTime.slice(0, 5),
+    endTime: session.endTime.slice(0, 5),
+    numberOfCourts: session.numberOfCourts,
+  });
+  setEditError(null);
+};
+
+  const closeEditSession = () => {
+    setEditTarget(null);
+    setEditError(null);
+  };
+
+  const handleEditSubmit = async (e: FormEvent) => {
+  e.preventDefault();
+  if (!editTarget) return;
+  setEditSaving(true);
+  setEditError(null);
+  try {
+    await updateSession(editTarget.sessionId, {
+      sessionName: editForm.sessionName,
+      sessionDate: editForm.sessionDate,
+      startTime: `${editForm.startTime}:00`,
+      endTime: `${editForm.endTime}:00`,
+      numberOfCourts: editForm.numberOfCourts,
+    });
+    closeEditSession();
+    await loadSessions();
+  } catch (err) {
+    const apiErr = err as { message?: string };
+    setEditError(apiErr.message ?? "Couldn't update the session. Please try again.");
+  } finally {
+    setEditSaving(false);
+  }
+};
+
   const openRoster = async (session: SessionDto) => {
     setRosterSession(session);
     setRosterError(null);
     setAddSearch("");
+    setAddCategoryFilter("All");
     setRosterLoading(true);
     try {
-      const [players, roster, sessionLeaders] = await Promise.all([
+      const [players, roster] = await Promise.all([
         allPlayers.length > 0 ? Promise.resolve(allPlayers) : getAllPlayers(),
         getSessionPlayers(session.sessionId),
-        getSessionLeaderboard(session.sessionId),
       ]);
       setAllPlayers(players);
       setRosterPlayers(roster);
-      setLeaders(sessionLeaders);
     } catch {
       setRosterError("Couldn't load the roster for this session.");
     } finally {
@@ -149,9 +231,12 @@ export default function SessionsPage() {
     const rosterIds = new Set(rosterPlayers.map((rp) => rp.playerId));
     const pool = allPlayers.filter((p) => !rosterIds.has(p.playerId));
     const q = addSearch.trim().toLowerCase();
-    if (!q) return pool;
-    return pool.filter((p) => p.fullName.toLowerCase().includes(q));
-  }, [allPlayers, rosterPlayers, addSearch]);
+    return pool.filter((p) => {
+      const matchesSearch = !q || p.fullName.toLowerCase().includes(q);
+      const matchesCategory = addCategoryFilter === "All" || p.skillCategory === addCategoryFilter;
+      return matchesSearch && matchesCategory;
+    });
+  }, [allPlayers, rosterPlayers, addSearch, addCategoryFilter]);
 
   const handleAddToRoster = async (playerId: number) => {
     if (!rosterSession) return;
@@ -160,8 +245,9 @@ export default function SessionsPage() {
     try {
       const added = await addPlayerToSession(rosterSession.sessionId, playerId);
       setRosterPlayers((prev) => [...prev, added]);
-    } catch {
-      setRosterError("Couldn't add that player. They may already be in this session.");
+    } catch (err) {
+      const apiErr = err as { message?: string };
+      setRosterError(apiErr.message ?? "Couldn't add that player. They may already be in this session.");
     } finally {
       setPendingPlayerId(null);
     }
@@ -217,7 +303,7 @@ export default function SessionsPage() {
         </Panel>
       ) : (
         <div className="grid gap-4 sm:gap-6">
-          {sessions.map((s) => {
+          {sortedSessions.map((s) => {
             const { month, day } = formatDate(s.sessionDate);
             const isLive = s.status === "Active";
 
@@ -250,10 +336,47 @@ export default function SessionsPage() {
                       </p>
                     </div>
                   </div>
+
+                  {/* Desktop / wide screens: full button row */}
                   <div className="hidden shrink-0 items-center gap-3 sm:flex">
                     <Button size="sm" variant="outline" onClick={() => openRoster(s)} className="rounded-full">
                       <Users className="size-3.5" /> Manage Players
                     </Button>
+                    <Button size="sm" variant="outline" onClick={() => openEditSession(s)} className="rounded-full">
+                      <Pencil className="size-3.5" /> Edit Session
+                    </Button>
+                    {isLive && (
+                      <Button size="sm" variant="outline" asChild className="rounded-full">
+                        <Link to={`/queue?sessionId=${s.sessionId}`}>
+                          <Eye className="size-3.5" /> View Queue
+                        </Link>
+                      </Button>
+                    )}
+                    {!isLive && (
+                      <Button size="sm" variant="outline" asChild className="rounded-full">
+                        <Link to={`/matches?sessionId=${s.sessionId}`}>
+                          <History className="size-3.5" /> View Results
+                        </Link>
+                      </Button>
+                    )}
+                    {isLive && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleCopyWatchLink(s.sessionId)}
+                        className="rounded-full"
+                      >
+                        {copiedSessionId === s.sessionId ? (
+                          <>
+                            <Check className="size-3.5" /> Copied
+                          </>
+                        ) : (
+                          <>
+                            <Share2 className="size-3.5" /> Watch Link
+                          </>
+                        )}
+                      </Button>
+                    )}
                     {isLive && (
                       <Button
                         size="sm"
@@ -265,6 +388,52 @@ export default function SessionsPage() {
                         {endingId === s.sessionId ? "Ending…" : "End Session"}
                       </Button>
                     )}
+                  </div>
+
+                  {/* Small screens: same actions collapsed into a menu */}
+                  <div className="shrink-0 sm:hidden">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="sm" variant="outline" className="size-9 rounded-full p-0">
+                          <MoreVertical className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => openRoster(s)}>
+                          <Users className="size-3.5" /> Manage Players
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => openEditSession(s)}>
+                          <Pencil className="size-3.5" /> Edit Session
+                        </DropdownMenuItem>
+                        {isLive ? (
+                          <DropdownMenuItem asChild>
+                            <Link to={`/queue?sessionId=${s.sessionId}`}>
+                              <Eye className="size-3.5" /> View Queue
+                            </Link>
+                          </DropdownMenuItem>
+                        ) : (
+                          <DropdownMenuItem asChild>
+                            <Link to={`/matches?sessionId=${s.sessionId}`}>
+                              <History className="size-3.5" /> View Results
+                            </Link>
+                          </DropdownMenuItem>
+                        )}
+                        {isLive && (
+                          <DropdownMenuItem onClick={() => handleCopyWatchLink(s.sessionId)}>
+                            <Share2 className="size-3.5" /> {copiedSessionId === s.sessionId ? "Copied" : "Watch Link"}
+                          </DropdownMenuItem>
+                        )}
+                        {isLive && (
+                          <DropdownMenuItem
+                            onClick={() => handleEndSession(s.sessionId)}
+                            disabled={endingId === s.sessionId}
+                            className="text-red-500 focus:text-red-500"
+                          >
+                            <Square className="size-3.5" /> {endingId === s.sessionId ? "Ending…" : "End Session"}
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </div>
               </Panel>
@@ -350,6 +519,82 @@ export default function SessionsPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Edit session dialog */}
+      <Dialog open={!!editTarget} onOpenChange={(open) => !open && closeEditSession()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit session</DialogTitle>
+            <DialogDescription>Update the date, time, and courts for this session.</DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleEditSubmit} className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="editSessionName">Session name</Label>
+              <Input
+                id="editSessionName"
+                required
+                value={editForm.sessionName}
+                onChange={(e) => setEditForm((f) => ({ ...f, sessionName: e.target.value }))}
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="editSessionDate">Date</Label>
+              <Input
+                id="editSessionDate"
+                type="date"
+                required
+                value={editForm.sessionDate}
+                onChange={(e) => setEditForm((f) => ({ ...f, sessionDate: e.target.value }))}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="editStartTime">Start time</Label>
+                <Input
+                  id="editStartTime"
+                  type="time"
+                  required
+                  value={editForm.startTime}
+                  onChange={(e) => setEditForm((f) => ({ ...f, startTime: e.target.value }))}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="editEndTime">End time</Label>
+                <Input
+                  id="editEndTime"
+                  type="time"
+                  required
+                  value={editForm.endTime}
+                  onChange={(e) => setEditForm((f) => ({ ...f, endTime: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="editNumberOfCourts">Number of courts</Label>
+              <Input
+                id="editNumberOfCourts"
+                type="number"
+                min={1}
+                required
+                value={editForm.numberOfCourts}
+                onChange={(e) => setEditForm((f) => ({ ...f, numberOfCourts: Number(e.target.value) }))}
+              />
+            </div>
+
+            {editError && <p className="text-sm text-red-500">{editError}</p>}
+
+            <DialogFooter>
+              <Button type="submit" disabled={editSaving} className="w-full">
+                {editSaving ? "Saving…" : "Save changes"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
       {/* Manage players dialog */}
       <Dialog open={!!rosterSession} onOpenChange={(open) => !open && closeRoster()}>
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
@@ -368,37 +613,6 @@ export default function SessionsPage() {
             <div className="flex flex-col gap-5">
               {rosterError && <p className="text-sm text-red-500">{rosterError}</p>}
 
-              {/* Mini leaderboard for this session — top 3 only */}
-              <div>
-                <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                  <Trophy className="size-3.5" /> Leading this session
-                </p>
-                {leaders.length === 0 ? (
-                  <p className="text-sm text-zinc-400">No results yet — play a few matches to populate this.</p>
-                ) : (
-                  <div className="flex flex-col gap-1">
-                    {leaders.slice(0, 3).map((l) => (
-                      <div
-                        key={l.playerId}
-                        className="flex items-center justify-between rounded-lg bg-zinc-50 px-3 py-1.5 text-sm"
-                      >
-                        <span className="flex items-center gap-2">
-                          <span
-                            className={`grid size-6 place-items-center rounded-full text-[10px] font-bold text-zinc-900 ${medalTone(l.rank)}`}
-                          >
-                            {l.rank <= 3 ? <Medal className="size-3.5" /> : l.rank}
-                          </span>
-                          {l.fullName}
-                        </span>
-                        <span className="tabular-nums text-zinc-500">
-                          {l.wins}-{l.losses} • {l.winPercentage.toFixed(0)}%
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
               <div>
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">
                   In this session ({rosterPlayers.length})
@@ -406,14 +620,22 @@ export default function SessionsPage() {
                 {rosterPlayers.length === 0 ? (
                   <p className="text-sm text-zinc-400">No players added yet.</p>
                 ) : (
-                  <div className="flex flex-col gap-1.5">
+                  <div className="flex max-h-64 flex-col gap-1.5 overflow-y-auto">
                     {rosterPlayers.map((rp) => (
                       <div key={rp.playerId} className="flex items-center justify-between rounded-xl bg-zinc-50 px-3 py-2">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium">{rp.fullName}</p>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <p className="truncate text-sm font-medium">{rp.fullName}</p>
+                            <span
+                              className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
+                                TIER_STYLE[rp.skillCategory] ?? "bg-zinc-200 text-zinc-700"
+                              }`}
+                            >
+                              {rp.skillCategory}
+                            </span>
+                          </div>
                           <p className="text-xs text-zinc-400">
-                            {rp.skillCategory} • {rp.gamesPlayedInSession} game
-                            {rp.gamesPlayedInSession === 1 ? "" : "s"} played
+                            {rp.gamesPlayedInSession} game{rp.gamesPlayedInSession === 1 ? "" : "s"} played
                             {rp.lockedPartnerName ? ` • 🔒 paired with ${rp.lockedPartnerName}` : ""}
                           </p>
                         </div>
@@ -432,35 +654,54 @@ export default function SessionsPage() {
               </div>
 
               <div>
-                <div className="mb-2 flex items-center justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                    Add from roster ({availablePlayers.length})
-                  </p>
-                </div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                  Add from roster ({availablePlayers.length})
+                </p>
                 <Input
                   value={addSearch}
                   onChange={(e) => setAddSearch(e.target.value)}
                   placeholder="Search players to add…"
                   className="mb-2"
                 />
+                <div className="mb-2 flex flex-wrap gap-1.5">
+                  {["All", ...SKILL_CATEGORIES].map((cat) => (
+                    <button
+                      key={cat}
+                      onClick={() => setAddCategoryFilter(cat)}
+                      className={`rounded-full px-2.5 py-1 text-[11px] font-bold transition-colors ${
+                        addCategoryFilter === cat
+                          ? "bg-ink text-white"
+                          : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
                 {availablePlayers.length === 0 ? (
                   <p className="text-sm text-zinc-400">
                     {allPlayers.length === 0
                       ? "You don't have any players yet."
-                      : addSearch
-                        ? "No players match your search."
-                        : "Everyone is already in this session."}
+                      : "No players match your search or filter."}
                   </p>
                 ) : (
-                  <div className="flex max-h-56 flex-col gap-1.5 overflow-y-auto">
+                  <div className="flex max-h-64 flex-col gap-1.5 overflow-y-auto">
                     {availablePlayers.map((p) => (
                       <div
                         key={p.playerId}
                         className="flex items-center justify-between rounded-xl px-3 py-2 ring-1 ring-zinc-100"
                       >
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium">{p.fullName}</p>
-                          <p className="text-xs text-zinc-400">{p.skillCategory}</p>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <p className="truncate text-sm font-medium">{p.fullName}</p>
+                            <span
+                              className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
+                                TIER_STYLE[p.skillCategory] ?? "bg-zinc-200 text-zinc-700"
+                              }`}
+                            >
+                              {p.skillCategory}
+                            </span>
+                          </div>
                         </div>
                         <Button
                           size="sm"

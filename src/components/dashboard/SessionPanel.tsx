@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CalendarDays, Loader2 } from "lucide-react";
 import PanelCard from "./PanelCard";
 import { getMySessions } from "@/services/sessions";
@@ -28,6 +28,18 @@ export default function SessionPanel() {
     };
   }, []);
 
+  // Live sessions float to the top; within each group (live vs ended), most recent
+  // first. Same rule as the Sessions page — otherwise a session you just wrapped up
+  // could bury the one you're actually running right now.
+  const sortedSessions = useMemo(() => {
+    return [...sessions].sort((a, b) => {
+      const aLive = a.status === "Active" ? 0 : 1;
+      const bLive = b.status === "Active" ? 0 : 1;
+      if (aLive !== bLive) return aLive - bLive;
+      return new Date(b.sessionDate).getTime() - new Date(a.sessionDate).getTime();
+    });
+  }, [sessions]);
+
   return (
     <PanelCard title="Recent Sessions" accent="bg-brand" to="/sessions" className="col-span-12 md:col-span-6">
       {loading ? (
@@ -36,11 +48,11 @@ export default function SessionPanel() {
         </div>
       ) : error ? (
         <p className="text-sm text-red-500">{error}</p>
-      ) : sessions.length === 0 ? (
+      ) : sortedSessions.length === 0 ? (
         <p className="text-sm text-zinc-400">No sessions yet. Start one to get going.</p>
       ) : (
         <div className="divide-y divide-zinc-950/5">
-          {sessions.slice(0, 4).map((s) => (
+          {sortedSessions.slice(0, 4).map((s) => (
             <div key={s.sessionId} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-3">
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold">{s.sessionName}</p>

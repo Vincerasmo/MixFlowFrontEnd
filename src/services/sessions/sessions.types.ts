@@ -21,6 +21,10 @@ export interface CreateSessionPayload {
 export interface UpdateSessionPayload {
   sessionName?: string;
   status?: string;
+  sessionDate?: string;
+  startTime?: string;
+  endTime?: string;
+  numberOfCourts?: number;
 }
 
 export interface SessionPlayerDto {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Plus, Pencil, Trash2, Search, Loader2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Loader2, MoreVertical } from "lucide-react";
 import { AppShell, PageHeader, Panel } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +29,12 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import { getAllPlayers, createPlayer, updatePlayer, deletePlayer } from "@/services/players";
 import type { PlayerDto } from "@/services/players";
 
@@ -47,6 +53,7 @@ export default function PlayersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<string>("All");
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingPlayer, setEditingPlayer] = useState<PlayerDto | null>(null);
@@ -76,9 +83,12 @@ export default function PlayersPage() {
 
   const filteredPlayers = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return players;
-    return players.filter((p) => p.fullName.toLowerCase().includes(q));
-  }, [players, search]);
+    return players.filter((p) => {
+      const matchesSearch = !q || p.fullName.toLowerCase().includes(q);
+      const matchesCategory = categoryFilter === "All" || p.skillCategory === categoryFilter;
+      return matchesSearch && matchesCategory;
+    });
+  }, [players, search, categoryFilter]);
 
   const openAddDialog = () => {
     setEditingPlayer(null);
@@ -161,6 +171,27 @@ export default function PlayersPage() {
         />
       </div>
 
+      <div className="mb-6 flex flex-wrap gap-2">
+        {["All", ...SKILL_CATEGORIES].map((cat) => (
+          <button
+            key={cat}
+            onClick={() => setCategoryFilter(cat)}
+            className={`rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${
+              categoryFilter === cat
+                ? "bg-ink text-white"
+                : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+            }`}
+          >
+            {cat}
+            {cat !== "All" && (
+              <span className="ml-1.5 opacity-60">
+                {players.filter((p) => p.skillCategory === cat).length}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-zinc-400">
           <Loader2 className="size-4 animate-spin" /> Loading roster…
@@ -169,7 +200,9 @@ export default function PlayersPage() {
         <p className="text-sm text-red-500">{error}</p>
       ) : filteredPlayers.length === 0 ? (
         <Panel className="text-center text-sm text-zinc-400">
-          {players.length === 0 ? "No players yet. Add one to get started." : "No players match your search."}
+          {players.length === 0
+            ? "No players yet. Add one to get started."
+            : "No players match your search or filter."}
         </Panel>
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -177,7 +210,8 @@ export default function PlayersPage() {
             <Panel key={p.playerId} className="group relative overflow-hidden">
               <div className="absolute -right-6 -top-6 size-24 rounded-full bg-brand-soft transition-transform group-hover:scale-110" />
 
-              <div className="absolute right-3 top-3 z-10 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+              {/* Desktop / wide screens: hover-to-reveal icons */}
+              <div className="absolute right-3 top-3 z-10 hidden gap-1 opacity-0 transition-opacity group-hover:opacity-100 sm:flex">
                 <button
                   onClick={() => openEditDialog(p)}
                   className="grid size-7 place-items-center rounded-full bg-white text-zinc-500 ring-1 ring-black/5 hover:text-zinc-900"
@@ -192,6 +226,32 @@ export default function PlayersPage() {
                 >
                   <Trash2 className="size-3.5" />
                 </button>
+              </div>
+
+              {/* Small screens: always-visible menu — hover doesn't exist on touch,
+                  so the icons above would otherwise be permanently unreachable here. */}
+              <div className="absolute right-3 top-3 z-10 sm:hidden">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      className="grid size-7 place-items-center rounded-full bg-white text-zinc-500 ring-1 ring-black/5"
+                      aria-label={`Actions for ${p.fullName}`}
+                    >
+                      <MoreVertical className="size-3.5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => openEditDialog(p)}>
+                      <Pencil className="size-3.5" /> Edit
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => setDeleteTarget(p)}
+                      className="text-red-500 focus:text-red-500"
+                    >
+                      <Trash2 className="size-3.5" /> Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
 
               <div className="relative">

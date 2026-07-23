@@ -56,7 +56,7 @@ export default function LeaderboardPanel() {
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-950/5">
-              {leaders.slice(0, 5).map((p) => (
+              {leaders.slice(0, 3).map((p) => (
                 <tr key={p.playerId}>
                   <td className="py-3">
                     <div

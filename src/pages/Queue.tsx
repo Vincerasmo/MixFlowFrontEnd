@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Loader2, Shuffle, Lock, Unlock, ArrowLeftRight, Repeat, X, Pencil } from "lucide-react";
 import { AppShell, PageHeader, Panel } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
@@ -24,9 +25,9 @@ import {
 import type { SessionDto, SessionPlayerDto } from "@/services/sessions";
 import type { QueueEntryDto, MatchDto } from "@/services/matches";
 
-
-
 export default function QueuePage() {
+  const [searchParams] = useSearchParams();
+
   const [activeSessions, setActiveSessions] = useState<SessionDto[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<number | null>(null);
   const [sessionsLoading, setSessionsLoading] = useState(true);
@@ -54,11 +55,19 @@ export default function QueuePage() {
       .then((all) => {
         const active = all.filter((s) => s.status === "Active");
         setActiveSessions(active);
-        if (active.length > 0) setSelectedSessionId(active[0].sessionId);
+
+        const requestedId = Number(searchParams.get("sessionId"));
+        const requestedSession = active.find((s) => s.sessionId === requestedId);
+
+        if (requestedSession) {
+          setSelectedSessionId(requestedSession.sessionId);
+        } else if (active.length > 0) {
+          setSelectedSessionId(active[0].sessionId);
+        }
       })
       .catch(() => setError("Couldn't load sessions."))
       .finally(() => setSessionsLoading(false));
-  }, []);
+  }, [searchParams]);
 
   const loadSessionData = async (sessionId: number, opts?: { silent?: boolean }) => {
     if (!opts?.silent) setInitialLoading(true);
@@ -93,16 +102,30 @@ export default function QueuePage() {
       m.team1.forEach((p) => ids.add(p.playerId));
       m.team2.forEach((p) => ids.add(p.playerId));
     });
+    return ids;
+  }, [activeMatches]);
+
+  // Separate from inMatchPlayerIds on purpose — a player slotted into a "Next Up"
+  // match hasn't actually started playing yet, so lumping them in with players who
+  // are genuinely mid-match was misleading (an organizer skimming the list could think
+  // a court had already finished when really it was just reserved for later).
+  const nextUpPlayerIds = useMemo(() => {
+    const ids = new Set<number>();
     nextUpMatches.forEach((m) => {
       m.team1.forEach((p) => ids.add(p.playerId));
       m.team2.forEach((p) => ids.add(p.playerId));
     });
     return ids;
-  }, [activeMatches, nextUpMatches]);
+  }, [nextUpMatches]);
 
   const inMatchPlayers = useMemo(
     () => sessionPlayers.filter((sp) => inMatchPlayerIds.has(sp.playerId)),
     [sessionPlayers, inMatchPlayerIds]
+  );
+
+  const reservedNextUpPlayers = useMemo(
+    () => sessionPlayers.filter((sp) => nextUpPlayerIds.has(sp.playerId)),
+    [sessionPlayers, nextUpPlayerIds]
   );
 
   const lockedPartnerByPlayerId = useMemo(() => {
@@ -391,6 +414,8 @@ export default function QueuePage() {
             <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-dark">Waiting</p>
             <p className="mt-2 text-5xl font-bold tabular-nums">{queue.length}</p>
             <div className="mt-6 space-y-2">
+              <StatRow label="Total players in session" value={String(sessionPlayers.length)} />
+              <StatRow label="Next up match players" value={String(nextUpPlayerIds.size)} />
               <StatRow label="In a match" value={String(inMatchPlayers.length)} />
               <StatRow label="Benched" value={String(benched.length)} />
               <StatRow label="Active courts" value={String(activeMatches.length)} />
@@ -402,7 +427,7 @@ export default function QueuePage() {
             {queue.length === 0 ? (
               <p className="text-sm text-zinc-400">No one's in the queue yet.</p>
             ) : (
-              <div className="divide-y divide-zinc-100">
+              <div className="max-h-96 divide-y divide-zinc-100 overflow-y-auto">
                 {queue.map((q, i) => {
                   const isPicking = lockingPlayerId !== null;
                   const isPickingThis = lockingPlayerId === q.playerId;
@@ -480,12 +505,12 @@ export default function QueuePage() {
             )}
           </Panel>
 
-          <Panel className="col-span-12">
+          <Panel className="col-span-12 lg:col-span-4">
             <h2 className="mb-4 text-sm font-semibold">On the bench</h2>
             {benched.length === 0 ? (
               <p className="text-sm text-zinc-400">No one's benched.</p>
             ) : (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="flex max-h-80 flex-col gap-2 overflow-y-auto">
                 {benched.map((sp) => (
                   <div
                     key={sp.playerId}
@@ -510,10 +535,24 @@ export default function QueuePage() {
           </Panel>
 
           {inMatchPlayers.length > 0 && (
-            <Panel className="col-span-12">
-              <h2 className="mb-4 text-sm font-semibold">Players — In a Match ({inMatchPlayers.length})</h2>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            <Panel className="col-span-12 lg:col-span-4">
+              <h2 className="mb-4 text-sm font-semibold">In a Match ({inMatchPlayers.length})</h2>
+              <div className="flex max-h-72 flex-col gap-2 overflow-y-auto">
                 {inMatchPlayers.map((sp) => (
+                  <div key={sp.playerId} className="rounded-xl px-3 py-2 ring-1 ring-zinc-100">
+                    <p className="truncate text-sm font-medium">{sp.fullName}</p>
+                    <p className="text-xs text-zinc-400">{sp.skillCategory}</p>
+                  </div>
+                ))}
+              </div>
+            </Panel>
+          )}
+
+          {reservedNextUpPlayers.length > 0 && (
+            <Panel className="col-span-12 lg:col-span-4">
+              <h2 className="mb-4 text-sm font-semibold">Reserved — Next Up ({reservedNextUpPlayers.length})</h2>
+              <div className="flex max-h-72 flex-col gap-2 overflow-y-auto">
+                {reservedNextUpPlayers.map((sp) => (
                   <div key={sp.playerId} className="rounded-xl px-3 py-2 ring-1 ring-zinc-100">
                     <p className="truncate text-sm font-medium">{sp.fullName}</p>
                     <p className="text-xs text-zinc-400">{sp.skillCategory}</p>

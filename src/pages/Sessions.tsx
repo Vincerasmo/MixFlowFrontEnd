@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { Plus, Loader2, Users, X, Share2, Check, Eye, History, Pencil, MoreVertical, Square } from "lucide-react";
+import { Plus, Loader2, Users, X, Share2, Check, Eye, History, MoreVertical, Square } from "lucide-react";
 import { AppShell, PageHeader, Panel } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

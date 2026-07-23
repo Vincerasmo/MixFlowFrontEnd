@@ -179,8 +179,8 @@ export default function LeaderboardPage() {
         <TabsContent value="overall">
           <LeaderboardView
             rankings={overallRankings}
-            subtitle="All-time, across every session"
-            emptyMessage="No players have recorded matches yet."
+            subtitle="This week, across every session — resets every Sunday"
+            emptyMessage="No players have recorded matches yet this week."
           />
         </TabsContent>
       </Tabs>
@@ -212,7 +212,7 @@ function LeaderboardView({
       {subtitle && <p className="mb-4 text-sm text-zinc-500">{subtitle}</p>}
 
       {first && (
-        <div className="mb-6 grid grid-cols-3 gap-3 sm:gap-6">
+        <div className="mb-6 grid grid-cols-3 items-end gap-3 sm:gap-6">
           {second ? (
             <Podium player={second} height="h-32 sm:h-40" gradient="from-zinc-300 to-zinc-400" medal="🥈" />
           ) : (
@@ -230,18 +230,19 @@ function LeaderboardView({
       <Panel>
         <h2 className="mb-4 text-sm font-semibold">Full rankings</h2>
         <div className="divide-y divide-zinc-100">
-          <div className="hidden grid-cols-[3rem_minmax(0,1fr)_4rem_4rem_4rem_4rem] items-center gap-3 pb-3 text-[10px] font-bold uppercase tracking-wider text-zinc-400 sm:grid">
+          <div className="hidden grid-cols-[3rem_minmax(0,1fr)_4rem_4rem_4rem_4rem_4rem] items-center gap-3 pb-3 text-[10px] font-bold uppercase tracking-wider text-zinc-400 sm:grid">
             <span>Rank</span>
             <span>Player</span>
             <span className="text-right">Rating</span>
             <span className="text-right">Wins</span>
             <span className="text-right">Losses</span>
+            <span className="text-right">Games</span>
             <span className="text-right">Win %</span>
           </div>
           {rest.map((p) => (
             <div
               key={p.playerId}
-              className="grid grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-3 py-3 sm:grid-cols-[3rem_minmax(0,1fr)_4rem_4rem_4rem_4rem]"
+              className="grid grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-3 py-3 sm:grid-cols-[3rem_minmax(0,1fr)_4rem_4rem_4rem_4rem_4rem]"
             >
               <span className="text-sm font-bold text-zinc-400 tabular-nums">#{p.rank}</span>
               <div className="flex min-w-0 items-center gap-3">
@@ -258,6 +259,9 @@ function LeaderboardView({
               </span>
               <span className="hidden text-right text-sm font-medium tabular-nums text-zinc-500 sm:inline">
                 {p.losses}
+              </span>
+              <span className="hidden text-right text-sm font-medium tabular-nums text-zinc-500 sm:inline">
+                {p.gamesPlayed}
               </span>
               <span className="hidden text-right text-xs font-bold tabular-nums sm:inline">
                 {Number(p.winPercentage).toFixed(0)}%

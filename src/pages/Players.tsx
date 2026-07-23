@@ -270,10 +270,11 @@ export default function PlayersPage() {
                     </span>
                   </div>
                 </div>
-                <div className="grid grid-cols-4 gap-2 border-t border-zinc-100 pt-3">
+                <div className="grid grid-cols-5 gap-2 border-t border-zinc-100 pt-3">
                   <Stat label="Rating" value={Number(p.skillLevel).toFixed(1)} />
                   <Stat label="Wins" value={String(p.totalWins)} accent />
                   <Stat label="Losses" value={String(p.totalLosses)} />
+                  <Stat label="Games" value={String(p.gamesPlayed)} />
                   <Stat label="Win %" value={`${p.winPercentage.toFixed(0)}%`} accent />
                 </div>
               </div>

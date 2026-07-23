@@ -74,6 +74,8 @@ export default function SessionsPage() {
   const [addSearch, setAddSearch] = useState("");
   const [addCategoryFilter, setAddCategoryFilter] = useState<string>("All");
 
+  const [confirmStep, setConfirmStep] = useState(false);
+
   const loadSessions = async () => {
     setLoading(true);
     setError(null);
@@ -103,31 +105,79 @@ export default function SessionsPage() {
     });
   }, [sessions]);
 
-  const handleCreate = async (e: FormEvent) => {
-    e.preventDefault();
-    setFormError(null);
-    setCreating(true);
+  const getTodayLocalDateString = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
 
-    try {
-      const payload: CreateSessionPayload = {
-        sessionName: form.sessionName,
-        sessionDate: form.sessionDate,
-        startTime: `${form.startTime}:00`,
-        endTime: `${form.endTime}:00`,
-        numberOfCourts: form.numberOfCourts,
-      };
+const validateSessionForm = (values: typeof emptyForm): string | null => {
+  if (!values.sessionName.trim()) {
+    return "Give the session a name.";
+  }
+  if (!values.sessionDate) {
+    return "Pick a date for the session.";
+  }
+  if (values.sessionDate < getTodayLocalDateString()) {
+    return "The session date can't be in the past.";
+  }
+  if (!values.startTime || !values.endTime) {
+    return "Set both a start time and an end time.";
+  }
+  if (values.startTime >= values.endTime) {
+    return "End time must be after start time.";
+  }
+  if (!Number.isInteger(values.numberOfCourts) || values.numberOfCourts < 1) {
+    return "Number of courts must be at least 1.";
+  }
+  return null;
+};
 
-      await createSession(payload);
-      setDialogOpen(false);
-      setForm(emptyForm);
-      await loadSessions();
-    } catch (err) {
-      const apiErr = err as { message?: string };
-      setFormError(apiErr.message ?? "Couldn't create the session. Please try again.");
-    } finally {
-      setCreating(false);
-    }
-  };
+const handleReviewSubmit = (e: FormEvent) => {
+  e.preventDefault();
+  setFormError(null);
+
+  const validationError = validateSessionForm(form);
+  if (validationError) {
+    setFormError(validationError);
+    return;
+  }
+
+  setConfirmStep(true);
+};
+
+const handleConfirmCreate = async () => {
+  setFormError(null);
+  setCreating(true);
+  try {
+    const payload: CreateSessionPayload = {
+      sessionName: form.sessionName.trim(),
+      sessionDate: form.sessionDate,
+      startTime: `${form.startTime}:00`,
+      endTime: `${form.endTime}:00`,
+      numberOfCourts: form.numberOfCourts,
+    };
+
+    await createSession(payload);
+    setDialogOpen(false);
+    setConfirmStep(false);
+    setForm(emptyForm);
+    await loadSessions();
+  } catch (err) {
+    const apiErr = err as { message?: string };
+    setFormError(apiErr.message ?? "Couldn't create the session. Please try again.");
+    setConfirmStep(false);
+  } finally {
+    setCreating(false);
+  }
+};
+
+const handleBackToEdit = () => {
+  setConfirmStep(false);
+  setFormError(null);
+};
 
   const handleEndSession = async (id: number) => {
     setEndingId(id);
@@ -228,6 +278,23 @@ export default function SessionsPage() {
     };
   };
 
+  const formatTimeLabel = (hhmm: string) => {
+  const [h, m] = hhmm.split(":").map(Number);
+  const period = h >= 12 ? "PM" : "AM";
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}:${String(m).padStart(2, "0")} ${period}`;
+};
+
+const formatDateLabel = (yyyyMmDd: string) => {
+  const [year, month, day] = yyyyMmDd.split("-").map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+};
+
   return (
     <AppShell>
       <PageHeader
@@ -236,7 +303,12 @@ export default function SessionsPage() {
         subtitle="Schedule, run, and archive your play sessions."
         action={
           <Button
-            onClick={() => setDialogOpen(true)}
+            onClick={() => {
+              setForm(emptyForm);
+              setConfirmStep(false);
+              setFormError(null);
+              setDialogOpen(true);
+            }}
             className="shrink-0 rounded-full bg-brand text-zinc-900 shadow-lg shadow-brand/30 hover:bg-brand-dark hover:text-white"
           >
             <Plus className="size-4" /> New Session
@@ -390,81 +462,119 @@ export default function SessionsPage() {
       )}
 
       {/* Create session dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          setDialogOpen(open);
+          if (!open) setConfirmStep(false);
+        }}
+      >
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Start a new session</DialogTitle>
-            <DialogDescription>Set the date, time, and courts. You can adjust the roster after.</DialogDescription>
-          </DialogHeader>
+          {!confirmStep ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>Start a new session</DialogTitle>
+                <DialogDescription>Set the date, time, and courts. You can adjust the roster after.</DialogDescription>
+              </DialogHeader>
 
-          <form onSubmit={handleCreate} className="flex flex-col gap-4">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="sessionName">Session name</Label>
-              <Input
-                id="sessionName"
-                required
-                value={form.sessionName}
-                onChange={(e) => setForm((f) => ({ ...f, sessionName: e.target.value }))}
-                placeholder="Morning Open Play"
-              />
-            </div>
+              <form onSubmit={handleReviewSubmit} className="flex flex-col gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="sessionName">Session name</Label>
+                  <Input
+                    id="sessionName"
+                    required
+                    value={form.sessionName}
+                    onChange={(e) => setForm((f) => ({ ...f, sessionName: e.target.value }))}
+                    placeholder="Morning Open Play"
+                  />
+                </div>
 
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="sessionDate">Date</Label>
-              <Input
-                id="sessionDate"
-                type="date"
-                required
-                value={form.sessionDate}
-                onChange={(e) => setForm((f) => ({ ...f, sessionDate: e.target.value }))}
-              />
-            </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="sessionDate">Date</Label>
+                  <Input
+                    id="sessionDate"
+                    type="date"
+                    required
+                    value={form.sessionDate}
+                    onChange={(e) => setForm((f) => ({ ...f, sessionDate: e.target.value }))}
+                  />
+                </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="startTime">Start time</Label>
-                <Input
-                  id="startTime"
-                  type="time"
-                  required
-                  value={form.startTime}
-                  onChange={(e) => setForm((f) => ({ ...f, startTime: e.target.value }))}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="startTime">Start time</Label>
+                    <Input
+                      id="startTime"
+                      type="time"
+                      required
+                      value={form.startTime}
+                      onChange={(e) => setForm((f) => ({ ...f, startTime: e.target.value }))}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="endTime">End time</Label>
+                    <Input
+                      id="endTime"
+                      type="time"
+                      required
+                      value={form.endTime}
+                      onChange={(e) => setForm((f) => ({ ...f, endTime: e.target.value }))}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="numberOfCourts">Number of courts</Label>
+                  <Input
+                    id="numberOfCourts"
+                    type="number"
+                    min={1}
+                    required
+                    value={form.numberOfCourts}
+                    onChange={(e) => setForm((f) => ({ ...f, numberOfCourts: Number(e.target.value) }))}
+                  />
+                </div>
+
+                {formError && <p className="text-sm text-red-500">{formError}</p>}
+
+                <DialogFooter>
+                  <Button type="submit" className="w-full">
+                    Review session
+                  </Button>
+                </DialogFooter>
+              </form>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle>Double-check before creating</DialogTitle>
+                <DialogDescription>Make sure everything below is correct.</DialogDescription>
+              </DialogHeader>
+
+              <div className="flex flex-col gap-3 rounded-xl bg-zinc-50 p-4">
+                <ReviewRow label="Name" value={form.sessionName.trim()} />
+                <ReviewRow label="Date" value={formatDateLabel(form.sessionDate)} />
+                <ReviewRow
+                  label="Time"
+                  value={`${formatTimeLabel(form.startTime)} – ${formatTimeLabel(form.endTime)}`}
                 />
+                <ReviewRow label="Courts" value={String(form.numberOfCourts)} />
               </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="endTime">End time</Label>
-                <Input
-                  id="endTime"
-                  type="time"
-                  required
-                  value={form.endTime}
-                  onChange={(e) => setForm((f) => ({ ...f, endTime: e.target.value }))}
-                />
-              </div>
-            </div>
 
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="numberOfCourts">Number of courts</Label>
-              <Input
-                id="numberOfCourts"
-                type="number"
-                min={1}
-                required
-                value={form.numberOfCourts}
-                onChange={(e) => setForm((f) => ({ ...f, numberOfCourts: Number(e.target.value) }))}
-              />
-            </div>
+              {formError && <p className="text-sm text-red-500">{formError}</p>}
 
-            {formError && <p className="text-sm text-red-500">{formError}</p>}
-
-            <DialogFooter>
-              <Button type="submit" disabled={creating} className="w-full">
-                {creating ? "Creating…" : "Create session"}
-              </Button>
-            </DialogFooter>
-          </form>
+              <DialogFooter className="gap-2 sm:gap-2">
+                <Button type="button" variant="outline" onClick={handleBackToEdit} disabled={creating} className="flex-1">
+                  Back
+                </Button>
+                <Button type="button" onClick={handleConfirmCreate} disabled={creating} className="flex-1">
+                  {creating ? "Creating…" : "Confirm & create"}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
-      </Dialog> 
+      </Dialog>
 
       {/* Manage players dialog */}
       <Dialog open={!!rosterSession} onOpenChange={(open) => !open && closeRoster()}>
@@ -593,5 +703,14 @@ export default function SessionsPage() {
         </DialogContent>
       </Dialog>
     </AppShell>
+  );
+}
+
+function ReviewRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between text-sm">
+      <span className="text-zinc-500">{label}</span>
+      <span className="font-semibold">{value}</span>
+    </div>
   );
 }

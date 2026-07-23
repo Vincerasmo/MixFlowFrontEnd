@@ -22,7 +22,6 @@ import {
 import {
   createSession,
   getMySessions,
-  updateSession,
   endSession,
   addPlayerToSession,
   getSessionPlayers,
@@ -64,12 +63,6 @@ export default function SessionsPage() {
 
   const [endingId, setEndingId] = useState<number | null>(null);
   const [copiedSessionId, setCopiedSessionId] = useState<number | null>(null);
-
-  // Edit session (name only — that's all the backend currently accepts)
-  const [editTarget, setEditTarget] = useState<SessionDto | null>(null);
-  const [editForm, setEditForm] = useState(emptyForm);
-  const [editSaving, setEditSaving] = useState(false);
-  const [editError, setEditError] = useState<string | null>(null);
 
   // Roster management
   const [rosterSession, setRosterSession] = useState<SessionDto | null>(null);
@@ -160,46 +153,6 @@ export default function SessionsPage() {
       setError("Couldn't copy the link. Please try again.");
     }
   };
-
-  const openEditSession = (session: SessionDto) => {
-  setEditTarget(session);
-  setEditForm({
-    sessionName: session.sessionName,
-    sessionDate: session.sessionDate.slice(0, 10),
-    startTime: session.startTime.slice(0, 5),
-    endTime: session.endTime.slice(0, 5),
-    numberOfCourts: session.numberOfCourts,
-  });
-  setEditError(null);
-};
-
-  const closeEditSession = () => {
-    setEditTarget(null);
-    setEditError(null);
-  };
-
-  const handleEditSubmit = async (e: FormEvent) => {
-  e.preventDefault();
-  if (!editTarget) return;
-  setEditSaving(true);
-  setEditError(null);
-  try {
-    await updateSession(editTarget.sessionId, {
-      sessionName: editForm.sessionName,
-      sessionDate: editForm.sessionDate,
-      startTime: `${editForm.startTime}:00`,
-      endTime: `${editForm.endTime}:00`,
-      numberOfCourts: editForm.numberOfCourts,
-    });
-    closeEditSession();
-    await loadSessions();
-  } catch (err) {
-    const apiErr = err as { message?: string };
-    setEditError(apiErr.message ?? "Couldn't update the session. Please try again.");
-  } finally {
-    setEditSaving(false);
-  }
-};
 
   const openRoster = async (session: SessionDto) => {
     setRosterSession(session);
@@ -342,9 +295,6 @@ export default function SessionsPage() {
                     <Button size="sm" variant="outline" onClick={() => openRoster(s)} className="rounded-full">
                       <Users className="size-3.5" /> Manage Players
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => openEditSession(s)} className="rounded-full">
-                      <Pencil className="size-3.5" /> Edit Session
-                    </Button>
                     {isLive && (
                       <Button size="sm" variant="outline" asChild className="rounded-full">
                         <Link to={`/queue?sessionId=${s.sessionId}`}>
@@ -401,9 +351,6 @@ export default function SessionsPage() {
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={() => openRoster(s)}>
                           <Users className="size-3.5" /> Manage Players
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => openEditSession(s)}>
-                          <Pencil className="size-3.5" /> Edit Session
                         </DropdownMenuItem>
                         {isLive ? (
                           <DropdownMenuItem asChild>
@@ -517,83 +464,7 @@ export default function SessionsPage() {
             </DialogFooter>
           </form>
         </DialogContent>
-      </Dialog>
-
-      {/* Edit session dialog */}
-      <Dialog open={!!editTarget} onOpenChange={(open) => !open && closeEditSession()}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit session</DialogTitle>
-            <DialogDescription>Update the date, time, and courts for this session.</DialogDescription>
-          </DialogHeader>
-
-          <form onSubmit={handleEditSubmit} className="flex flex-col gap-4">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="editSessionName">Session name</Label>
-              <Input
-                id="editSessionName"
-                required
-                value={editForm.sessionName}
-                onChange={(e) => setEditForm((f) => ({ ...f, sessionName: e.target.value }))}
-              />
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="editSessionDate">Date</Label>
-              <Input
-                id="editSessionDate"
-                type="date"
-                required
-                value={editForm.sessionDate}
-                onChange={(e) => setEditForm((f) => ({ ...f, sessionDate: e.target.value }))}
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="editStartTime">Start time</Label>
-                <Input
-                  id="editStartTime"
-                  type="time"
-                  required
-                  value={editForm.startTime}
-                  onChange={(e) => setEditForm((f) => ({ ...f, startTime: e.target.value }))}
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="editEndTime">End time</Label>
-                <Input
-                  id="editEndTime"
-                  type="time"
-                  required
-                  value={editForm.endTime}
-                  onChange={(e) => setEditForm((f) => ({ ...f, endTime: e.target.value }))}
-                />
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="editNumberOfCourts">Number of courts</Label>
-              <Input
-                id="editNumberOfCourts"
-                type="number"
-                min={1}
-                required
-                value={editForm.numberOfCourts}
-                onChange={(e) => setEditForm((f) => ({ ...f, numberOfCourts: Number(e.target.value) }))}
-              />
-            </div>
-
-            {editError && <p className="text-sm text-red-500">{editError}</p>}
-
-            <DialogFooter>
-              <Button type="submit" disabled={editSaving} className="w-full">
-                {editSaving ? "Saving…" : "Save changes"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      </Dialog> 
 
       {/* Manage players dialog */}
       <Dialog open={!!rosterSession} onOpenChange={(open) => !open && closeRoster()}>

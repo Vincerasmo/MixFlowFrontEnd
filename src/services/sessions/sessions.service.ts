@@ -3,7 +3,6 @@ import type {
   CreateSessionPayload,
   SessionDto,
   SessionPlayerDto,
-  UpdateSessionPayload,
 } from "./sessions.types";
 
 export async function createSession(payload: CreateSessionPayload): Promise<SessionDto> {
@@ -32,11 +31,6 @@ export async function getActiveSession(): Promise<SessionDto | null> {
     if (status === 404) return null;
     throw err;
   }
-}
-
-export async function updateSession(id: number, payload: UpdateSessionPayload): Promise<SessionDto> {
-  const { data } = await apiClient.put<SessionDto>(`/sessions/${id}`, payload);
-  return data;
 }
 
 export async function endSession(id: number): Promise<void> {

@@ -18,15 +18,6 @@ export interface CreateSessionPayload {
   numberOfCourts: number;
 }
 
-export interface UpdateSessionPayload {
-  sessionName?: string;
-  status?: string;
-  sessionDate?: string;
-  startTime?: string;
-  endTime?: string;
-  numberOfCourts?: number;
-}
-
 export interface SessionPlayerDto {
   sessionPlayerId: number;
   playerId: number;

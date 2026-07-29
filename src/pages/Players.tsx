@@ -107,17 +107,29 @@ export default function PlayersPage() {
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setFormError(null);
+
+    const trimmedName = form.fullName.trim();
+    const isDuplicate = players.some(
+      (p) =>
+        p.fullName.trim().toLowerCase() === trimmedName.toLowerCase() &&
+        p.playerId !== editingPlayer?.playerId
+    );
+    if (isDuplicate) {
+      setFormError(`A player named "${trimmedName}" already exists.`);
+      return;
+    }
+
     setSaving(true);
 
     try {
       if (editingPlayer) {
         await updatePlayer(editingPlayer.playerId, {
-          fullName: form.fullName,
+          fullName: trimmedName,
           skillCategory: form.skillCategory,
         });
       } else {
         await createPlayer({
-          fullName: form.fullName,
+          fullName: trimmedName,
           skillCategory: form.skillCategory,
         });
       }

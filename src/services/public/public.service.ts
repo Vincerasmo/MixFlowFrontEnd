@@ -12,6 +12,8 @@ export interface PublicSessionDto {
   sessionName: string;
   numberOfCourts: number;
   status: string;
+  startTime: string;
+  endTime: string;
 }
 
 export async function getPublicSession(sessionId: number): Promise<PublicSessionDto> {

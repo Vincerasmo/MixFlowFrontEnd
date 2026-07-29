@@ -364,8 +364,10 @@ export default function QueuePage() {
                   className="relative cursor-pointer overflow-hidden rounded-[20px] bg-[#8ba668] p-4 text-white ring-1 ring-black/10 transition-transform hover:scale-[1.01]"
                 >
                   <div className="relative">
-                    <div className="mb-4 flex items-center justify-between">
-                      <p className="text-xs font-black uppercase tracking-[0.2em] text-white">Next Up</p>
+                    <div className="mb-1 flex items-center justify-between">
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-white">
+                        {slot === 0 ? "Next Up" : "On Deck"}
+                      </p>
                       <Button
                         size="sm"
                         onClick={() => openEdit(match)}
@@ -375,6 +377,11 @@ export default function QueuePage() {
                         <Pencil className="size-3.5" />
                       </Button>
                     </div>
+                    <p className="mb-3 text-[10px] font-semibold text-white/70">
+                      {slot === 0
+                        ? "Fills the very next court that opens up"
+                        : "Fills the court after that"}
+                    </p>
                     <div className="grid grid-cols-[1fr_56px_1fr] overflow-hidden rounded-xl border-[4px] border-white">
                       <div className="grid grid-rows-2 divide-y-[3px] divide-white bg-[#4a7a9c]">
                         {match.team1.map((p) => (
@@ -401,7 +408,9 @@ export default function QueuePage() {
                   key={slot}
                   className="flex flex-col items-center justify-center border-2 border-dashed border-zinc-200 bg-zinc-50 p-6 text-center"
                 >
-                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400">Next Up</p>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400">
+                    {slot === 0 ? "Next Up" : "On Deck"}
+                  </p>
                   <p className="mt-2 text-sm text-zinc-500">
                     {queue.length < 4 ? `Need ${4 - queue.length} more queued` : "Preparing…"}
                   </p>

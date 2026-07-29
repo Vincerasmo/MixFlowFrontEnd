@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Loader2, Medal } from "lucide-react";
+import { Loader2, Medal, History } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PickleballIcon } from "@/components/icons/pickleball-icons";
 import {
@@ -19,6 +19,13 @@ const POLL_INTERVAL_MS = 7000;
 
 function initials(name: string) {
   return name.split(" ").map((n) => n[0]).join("");
+}
+
+function formatTimeLabel(hhmm: string) {
+  const [h, m] = hhmm.split(":").map(Number);
+  const period = h >= 12 ? "PM" : "AM";
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}:${String(m).padStart(2, "0")} ${period}`;
 }
 
 // Identical to the dashboard's Top Performers panel, so rank styling is consistent
@@ -115,11 +122,13 @@ export default function WatchPage() {
     <div className="min-h-screen bg-zinc-50 pb-16 font-sans text-zinc-900">
       <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/90 px-4 py-3 backdrop-blur-md sm:px-6">
         <div className="mx-auto flex max-w-5xl items-center gap-3">
-          <PickleballIcon className="size-7" />
+          <PickleballIcon spin className="size-8" />
           <div className="min-w-0">
             <p className="truncate text-base font-bold">{session.sessionName}</p>
             <p className="text-xs text-zinc-500">
-              {session.status === "Active" ? "Live now" : "Session ended"} • {session.numberOfCourts} courts
+              {session.status === "Active" ? "Live now" : "Session ended"} •{" "}
+              {formatTimeLabel(session.startTime.slice(0, 5))}–{formatTimeLabel(session.endTime.slice(0, 5))} •{" "}
+              {session.numberOfCourts} courts
             </p>
           </div>
         </div>
@@ -179,19 +188,26 @@ export default function WatchPage() {
           </div>
         </section>
 
-        {/* Next Up */}
+        {/* Next Up — same "Next Up" / "On Deck" labeling and explanatory subtitle as the
+            organizer's Queue page, so which prepared match fills the next open court is
+            unambiguous here too. */}
         <section className="mb-8">
           <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">Next Up</h2>
           {nextUpMatches.length === 0 ? (
             <p className="text-sm text-zinc-400">Nothing prepared yet.</p>
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {nextUpMatches.map((match) => (
+              {nextUpMatches.map((match, i) => (
                 <div
                   key={match.matchId}
                   className="relative overflow-hidden rounded-[20px] bg-[#8ba668] p-4 text-white ring-1 ring-black/10"
                 >
-                  <p className="mb-3 text-xs font-black uppercase tracking-[0.2em] text-zinc-900">Next Up</p>
+                  <p className="mb-1 text-xs font-black uppercase tracking-[0.2em] text-white">
+                    {i === 0 ? "Next Up" : "On Deck"}
+                  </p>
+                  <p className="mb-3 text-[10px] font-semibold text-white/70">
+                    {i === 0 ? "Fills the very next court that opens up" : "Fills the court after that"}
+                  </p>
                   <div className="grid grid-cols-[1fr_56px_1fr] overflow-hidden rounded-xl border-[4px] border-white">
                     <div className="grid grid-rows-2 divide-y-[3px] divide-white bg-[#4a7a9c]">
                       {match.team1.map((p) => (
@@ -244,7 +260,7 @@ export default function WatchPage() {
             {inMatchPlayers.length === 0 ? (
               <p className="text-sm text-zinc-400">No one's playing right now.</p>
             ) : (
-              <div className="divide-y divide-zinc-100">
+              <div className="max-h-96 divide-y divide-zinc-100 overflow-y-auto">
                 {inMatchPlayers.map((p) => (
                   <div key={p.playerId} className="flex items-center justify-between gap-3 py-2.5">
                     <p className="truncate text-sm font-semibold">{p.fullName}</p>
@@ -264,7 +280,7 @@ export default function WatchPage() {
             {reservedNextUpPlayers.length === 0 ? (
               <p className="text-sm text-zinc-400">Nothing prepared yet.</p>
             ) : (
-              <div className="divide-y divide-zinc-100">
+              <div className="max-h-96 divide-y divide-zinc-100 overflow-y-auto">
                 {reservedNextUpPlayers.map((p) => (
                   <div key={p.playerId} className="flex items-center gap-3 py-2.5">
                     <p className="truncate text-sm font-semibold">{p.fullName}</p>
@@ -307,26 +323,60 @@ export default function WatchPage() {
           )}
         </section>
 
-        {/* Recent results */}
+        {/* Recent results — same court-styled card treatment as the Matches page */}
         <section className="rounded-[20px] bg-white p-5 ring-1 ring-black/5">
-          <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">Recent Results</h2>
+          <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">
+            <History className="mr-1.5 inline size-4 text-zinc-400" />
+            {session.status === "Active" ? "Recent Results" : "Final Results"}
+          </h2>
           {completedMatches.length === 0 ? (
-            <p className="text-sm text-zinc-400">No matches finished yet.</p>
+            <p className="text-sm text-zinc-400">
+              {session.status === "Active" ? "No matches finished yet." : "No matches were recorded in this session."}
+            </p>
           ) : (
-            <div className="max-h-96 divide-y divide-zinc-100 overflow-y-auto">
-              {completedMatches.slice(0, 10).map((m) => (
-                <div key={m.matchId} className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 py-2.5">
-                  <p className="truncate text-right text-sm font-semibold">
-                    {m.team1.map((p) => p.fullName).join(" / ")}
-                  </p>
-                  <span className="shrink-0 rounded-lg bg-brand-soft px-2.5 py-1 text-xs font-bold tabular-nums text-brand-dark">
-                    {m.team1Score ?? 0}-{m.team2Score ?? 0}
-                  </span>
-                  <p className="truncate text-sm font-semibold text-zinc-500">
-                    {m.team2.map((p) => p.fullName).join(" / ")}
-                  </p>
-                </div>
-              ))}
+            <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
+              {completedMatches.slice(0, 10).map((m) => {
+                const t1Score = m.team1Score ?? 0;
+                const t2Score = m.team2Score ?? 0;
+                const t1Won = t1Score > t2Score;
+                const t2Won = t2Score > t1Score;
+                return (
+                  <div
+                    key={m.matchId}
+                    className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 rounded-2xl bg-[#8ba668] px-4 py-3 ring-1 ring-black/10"
+                  >
+                    <p
+                      className={`truncate text-right text-sm drop-shadow ${
+                        t1Won ? "font-black text-white" : "font-medium text-white/60"
+                      }`}
+                    >
+                      {t1Won && "🏆 "}
+                      {m.team1.map((p) => p.fullName).join(" / ")}
+                    </p>
+
+                    <div className="grid shrink-0 grid-cols-[auto_10px_auto] overflow-hidden rounded-full border-2 border-white shadow">
+                      <span className="bg-[#4a7a9c] px-3 py-1.5 text-sm font-black tabular-nums text-white">
+                        {t1Score}
+                      </span>
+                      <span className="relative bg-[#5ec2dd]">
+                        <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-zinc-900" />
+                      </span>
+                      <span className="bg-[#4a7a9c] px-3 py-1.5 text-sm font-black tabular-nums text-white">
+                        {t2Score}
+                      </span>
+                    </div>
+
+                    <p
+                      className={`truncate text-sm drop-shadow ${
+                        t2Won ? "font-black text-white" : "font-medium text-white/60"
+                      }`}
+                    >
+                      {m.team2.map((p) => p.fullName).join(" / ")}
+                      {t2Won && " 🏆"}
+                    </p>
+                  </div>
+                );
+              })}
             </div>
           )}
         </section>

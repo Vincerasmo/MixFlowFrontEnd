@@ -4802,7 +4802,7 @@ export default function NotFoundPage() {
 <file path="src/pages/Watch.tsx">
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Loader2, Medal } from "lucide-react";
+import { Loader2, Medal, History } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PickleballIcon } from "@/components/icons/pickleball-icons";
 import {
@@ -4917,7 +4917,7 @@ export default function WatchPage() {
     <div className="min-h-screen bg-zinc-50 pb-16 font-sans text-zinc-900">
       <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/90 px-4 py-3 backdrop-blur-md sm:px-6">
         <div className="mx-auto flex max-w-5xl items-center gap-3">
-          <PickleballIcon className="size-7" />
+          <PickleballIcon spin className="size-8" />
           <div className="min-w-0">
             <p className="truncate text-base font-bold">{session.sessionName}</p>
             <p className="text-xs text-zinc-500">
@@ -4981,19 +4981,26 @@ export default function WatchPage() {
           </div>
         </section>
 
-        {/* Next Up */}
+        {/* Next Up — same "Next Up" / "On Deck" labeling and explanatory subtitle as the
+            organizer's Queue page, so which prepared match fills the next open court is
+            unambiguous here too. */}
         <section className="mb-8">
           <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">Next Up</h2>
           {nextUpMatches.length === 0 ? (
             <p className="text-sm text-zinc-400">Nothing prepared yet.</p>
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {nextUpMatches.map((match) => (
+              {nextUpMatches.map((match, i) => (
                 <div
                   key={match.matchId}
                   className="relative overflow-hidden rounded-[20px] bg-[#8ba668] p-4 text-white ring-1 ring-black/10"
                 >
-                  <p className="mb-3 text-xs font-black uppercase tracking-[0.2em] text-zinc-900">Next Up</p>
+                  <p className="mb-1 text-xs font-black uppercase tracking-[0.2em] text-white">
+                    {i === 0 ? "Next Up" : "On Deck"}
+                  </p>
+                  <p className="mb-3 text-[10px] font-semibold text-white/70">
+                    {i === 0 ? "Fills the very next court that opens up" : "Fills the court after that"}
+                  </p>
                   <div className="grid grid-cols-[1fr_56px_1fr] overflow-hidden rounded-xl border-[4px] border-white">
                     <div className="grid grid-rows-2 divide-y-[3px] divide-white bg-[#4a7a9c]">
                       {match.team1.map((p) => (
@@ -5109,26 +5116,60 @@ export default function WatchPage() {
           )}
         </section>
 
-        {/* Recent results */}
+        {/* Recent results — same court-styled card treatment as the Matches page */}
         <section className="rounded-[20px] bg-white p-5 ring-1 ring-black/5">
-          <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">Recent Results</h2>
+          <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">
+            <History className="mr-1.5 inline size-4 text-zinc-400" />
+            {session.status === "Active" ? "Recent Results" : "Final Results"}
+          </h2>
           {completedMatches.length === 0 ? (
-            <p className="text-sm text-zinc-400">No matches finished yet.</p>
+            <p className="text-sm text-zinc-400">
+              {session.status === "Active" ? "No matches finished yet." : "No matches were recorded in this session."}
+            </p>
           ) : (
-            <div className="max-h-96 divide-y divide-zinc-100 overflow-y-auto">
-              {completedMatches.slice(0, 10).map((m) => (
-                <div key={m.matchId} className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 py-2.5">
-                  <p className="truncate text-right text-sm font-semibold">
-                    {m.team1.map((p) => p.fullName).join(" / ")}
-                  </p>
-                  <span className="shrink-0 rounded-lg bg-brand-soft px-2.5 py-1 text-xs font-bold tabular-nums text-brand-dark">
-                    {m.team1Score ?? 0}-{m.team2Score ?? 0}
-                  </span>
-                  <p className="truncate text-sm font-semibold text-zinc-500">
-                    {m.team2.map((p) => p.fullName).join(" / ")}
-                  </p>
-                </div>
-              ))}
+            <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
+              {completedMatches.slice(0, 10).map((m) => {
+                const t1Score = m.team1Score ?? 0;
+                const t2Score = m.team2Score ?? 0;
+                const t1Won = t1Score > t2Score;
+                const t2Won = t2Score > t1Score;
+                return (
+                  <div
+                    key={m.matchId}
+                    className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 rounded-2xl bg-[#8ba668] px-4 py-3 ring-1 ring-black/10"
+                  >
+                    <p
+                      className={`truncate text-right text-sm drop-shadow ${
+                        t1Won ? "font-black text-white" : "font-medium text-white/60"
+                      }`}
+                    >
+                      {t1Won && "🏆 "}
+                      {m.team1.map((p) => p.fullName).join(" / ")}
+                    </p>
+
+                    <div className="grid shrink-0 grid-cols-[auto_10px_auto] overflow-hidden rounded-full border-2 border-white shadow">
+                      <span className="bg-[#4a7a9c] px-3 py-1.5 text-sm font-black tabular-nums text-white">
+                        {t1Score}
+                      </span>
+                      <span className="relative bg-[#5ec2dd]">
+                        <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-zinc-900" />
+                      </span>
+                      <span className="bg-[#4a7a9c] px-3 py-1.5 text-sm font-black tabular-nums text-white">
+                        {t2Score}
+                      </span>
+                    </div>
+
+                    <p
+                      className={`truncate text-sm drop-shadow ${
+                        t2Won ? "font-black text-white" : "font-medium text-white/60"
+                      }`}
+                    >
+                      {m.team2.map((p) => p.fullName).join(" / ")}
+                      {t2Won && " 🏆"}
+                    </p>
+                  </div>
+                );
+              })}
             </div>
           )}
         </section>
@@ -7035,6 +7076,181 @@ export default function DashboardPage() {
 }
 </file>
 
+<file path="src/components/app-shell.tsx">
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { type ReactNode } from "react";
+import { PickleballIcon } from "../components/icons/pickleball-icons";
+import { getStoredOrganizer, logout } from "@/services/auth";
+
+const NAV: { label: string; to: string }[] = [
+  { label: "Dashboard", to: "/dashboard" },
+  { label: "Sessions", to: "/sessions" },
+  { label: "Players", to: "/players" },
+  { label: "Queue", to: "/queue" },
+  { label: "Matches", to: "/matches" },
+  { label: "Leaderboard", to: "/leaderboard" },
+];
+
+// "Jeevon Ricafort" -> "JR". Falls back gracefully for single-word or missing names.
+function getInitials(fullName: string | undefined): string {
+  if (!fullName) return "?";
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+export function AppShell({ children }: { children: ReactNode }) {
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const organizer = getStoredOrganizer();
+  const initials = getInitials(organizer?.fullName);
+
+  const handleLogout = () => {
+    logout();
+    navigate("/", { replace: true });
+  };
+
+  return (
+    <div className="relative min-h-screen overflow-x-hidden bg-linear-to-b from-zinc-50 via-white to-brand-soft/30 font-sans text-zinc-900">
+      {/* Deliberately restrained — a couple of very soft, static color washes plus a
+          faint dot texture. No competing animated blobs, no strong colors behind
+          text: white Panel cards need to stay the clear visual focus on every page. */}
+      <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+        <div className="absolute -left-32 -top-32 size-[26rem] rounded-full bg-brand/10 blur-3xl" />
+        <div className="absolute -bottom-40 -right-32 size-[30rem] rounded-full bg-ball/10 blur-3xl" />
+        <div
+          className="absolute inset-0 opacity-[0.035]"
+          style={{
+            backgroundImage: "radial-gradient(currentColor 1px, transparent 1px)",
+            backgroundSize: "22px 22px",
+          }}
+        />
+      </div>
+      <nav className="sticky top-0 z-50 border-b border-zinc-200 bg-white/85 backdrop-blur-md">
+        <div className="mx-auto grid max-w-7xl grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3 sm:px-6">
+          <div className="flex min-w-0 items-center gap-4 lg:gap-8">
+            <Link to="/dashboard" className="flex shrink-0 items-center gap-2">
+              <PickleballIcon spin className="size-8" />
+              <span className="text-base font-bold tracking-tight">
+                MixFlow<span className="text-brand-dark">.</span>
+              </span>
+            </Link>
+            <div className="hidden min-w-0 gap-1 md:flex">
+              {NAV.map((item) => {
+                const active = pathname === item.to;
+                return (
+                  <Link
+                    key={item.label}
+                    to={item.to}
+                    className={`relative rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
+                      active
+                        ? "bg-ink text-white"
+                        : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
+                    }`}
+                  >
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-3">
+            <button
+              type="button"
+              onClick={handleLogout}
+              title="Log out"
+              className="rounded-full bg-zinc-100 p-1 text-zinc-500 transition-colors hover:bg-zinc-200 hover:text-zinc-900">
+              <span className="sr-only">Logout</span>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={1.5}
+                stroke="currentColor"
+                className="size-7"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75"
+                />
+              </svg>
+            </button>
+            <div
+              title={organizer?.fullName}
+              className="grid size-9 shrink-0 place-items-center rounded-full bg-linear-to-br from-ball to-brand text-[11px] font-bold text-zinc-900 ring-2 ring-white shadow-sm"
+            >
+              {initials}
+            </div>
+          </div>
+        </div>
+        <div className="flex gap-1 overflow-x-auto px-4 pb-2 md:hidden">
+          {NAV.map((item) => {
+            const active = pathname === item.to;
+            return (
+              <Link
+                key={item.label}
+                to={item.to}
+                className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${
+                  active ? "bg-ink text-white" : "bg-zinc-100 text-zinc-600"
+                }`}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
+        </div>
+      </nav>
+      <main className="relative z-10 mx-auto max-w-7xl p-4 sm:p-6">{children}</main>
+    </div>
+  );
+}
+
+export function PageHeader({
+  eyebrow,
+  title,
+  subtitle,
+  action,
+}: {
+  eyebrow?: string;
+  title: string;
+  subtitle?: string;
+  action?: ReactNode;
+}) {
+  return (
+    <header className="mb-6 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-4">
+      <div className="min-w-0">
+        {eyebrow && (
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.15em] text-brand-dark">
+            {eyebrow}
+          </p>
+        )}
+        <h1 className="truncate text-2xl font-bold tracking-tight sm:text-3xl">{title}</h1>
+        {subtitle && <p className="mt-1 text-sm text-zinc-500">{subtitle}</p>}
+      </div>
+      {action}
+    </header>
+  );
+}
+
+export function Panel({
+  children,
+  className = "",
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <section
+      className={`rounded-[20px] bg-white p-5 ring-1 ring-black/5 sm:p-6 ${className}`}
+    >
+      {children}
+    </section>
+  );
+}
+</file>
+
 <file path="src/pages/Leaderboard.tsx">
 import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
@@ -7217,8 +7433,8 @@ export default function LeaderboardPage() {
         <TabsContent value="overall">
           <LeaderboardView
             rankings={overallRankings}
-            subtitle="All-time, across every session"
-            emptyMessage="No players have recorded matches yet."
+            subtitle="This week, across every session — resets every Sunday"
+            emptyMessage="No players have recorded matches yet this week."
           />
         </TabsContent>
       </Tabs>
@@ -7710,900 +7926,6 @@ function Stat({ label, value, accent }: { label: string; value: string; accent?:
 }
 </file>
 
-<file path="src/pages/Sessions.tsx">
-import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
-import { Plus, Loader2, Users, X, Share2, Check, Eye, History, MoreVertical, Square } from "lucide-react";
-import { AppShell, PageHeader, Panel } from "@/components/app-shell";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-} from "@/components/ui/dropdown-menu";
-import {
-  createSession,
-  getMySessions,
-  endSession,
-  addPlayerToSession,
-  getSessionPlayers,
-  removePlayerFromSession,
-} from "@/services/sessions";
-import { getAllPlayers } from "@/services/players";
-import type { CreateSessionPayload, SessionDto, SessionPlayerDto } from "@/services/sessions";
-import type { PlayerDto } from "@/services/players";
-
-const SKILL_CATEGORIES = ["Novice", "Intermediate", "Advanced"] as const;
-
-// Same skill-tier color coding as the Players page, so category reads consistently everywhere.
-const TIER_STYLE: Record<string, string> = {
-  Advanced: "bg-ink text-white",
-  Intermediate: "bg-brand text-zinc-900",
-  Novice: "bg-zinc-200 text-zinc-700",
-};
-
-const emptyForm = {
-  sessionName: "",
-  sessionDate: "",
-  startTime: "",
-  endTime: "",
-  numberOfCourts: 4,
-};
-
-// Lock/unlock pairing lives on the Queue page — that's where the organizer is
-// actually looking when deciding who should play together, and it needs to react to
-// who's currently queued/in-match, which this dialog doesn't track.
-export default function SessionsPage() {
-  const [sessions, setSessions] = useState<SessionDto[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [form, setForm] = useState(emptyForm);
-  const [formError, setFormError] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
-
-  const [endingId, setEndingId] = useState<number | null>(null);
-  const [copiedSessionId, setCopiedSessionId] = useState<number | null>(null);
-
-  // Roster management
-  const [rosterSession, setRosterSession] = useState<SessionDto | null>(null);
-  const [rosterPlayers, setRosterPlayers] = useState<SessionPlayerDto[]>([]);
-  const [allPlayers, setAllPlayers] = useState<PlayerDto[]>([]);
-  const [rosterLoading, setRosterLoading] = useState(false);
-  const [rosterError, setRosterError] = useState<string | null>(null);
-  const [pendingPlayerId, setPendingPlayerId] = useState<number | null>(null);
-  const [addSearch, setAddSearch] = useState("");
-  const [addCategoryFilter, setAddCategoryFilter] = useState<string>("All");
-
-  const [confirmStep, setConfirmStep] = useState(false);
-
-  const loadSessions = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await getMySessions();
-      setSessions(data);
-    } catch {
-      setError("Couldn't load sessions.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadSessions();
-  }, []);
-
-  // Live sessions always float to the top, regardless of date — an organizer
-  // actively running a session shouldn't have to scroll past history to find it.
-  const sortedSessions = useMemo(() => {
-    return [...sessions].sort((a, b) => {
-      const aLive = a.status === "Active" ? 1 : 0;
-      const bLive = b.status === "Active" ? 1 : 0;
-      if (aLive !== bLive) return bLive - aLive;
-
-      return new Date(b.sessionDate).getTime() - new Date(a.sessionDate).getTime();
-    });
-  }, [sessions]);
-
-  const getTodayLocalDateString = () => {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-};
-
-const validateSessionForm = (values: typeof emptyForm): string | null => {
-  if (!values.sessionName.trim()) {
-    return "Give the session a name.";
-  }
-  if (!values.sessionDate) {
-    return "Pick a date for the session.";
-  }
-  if (values.sessionDate < getTodayLocalDateString()) {
-    return "The session date can't be in the past.";
-  }
-  if (!values.startTime || !values.endTime) {
-    return "Set both a start time and an end time.";
-  }
-  if (values.startTime >= values.endTime) {
-    return "End time must be after start time.";
-  }
-  if (!Number.isInteger(values.numberOfCourts) || values.numberOfCourts < 1) {
-    return "Number of courts must be at least 1.";
-  }
-  return null;
-};
-
-const handleReviewSubmit = (e: FormEvent) => {
-  e.preventDefault();
-  setFormError(null);
-
-  const validationError = validateSessionForm(form);
-  if (validationError) {
-    setFormError(validationError);
-    return;
-  }
-
-  setConfirmStep(true);
-};
-
-const handleConfirmCreate = async () => {
-  setFormError(null);
-  setCreating(true);
-  try {
-    const payload: CreateSessionPayload = {
-      sessionName: form.sessionName.trim(),
-      sessionDate: form.sessionDate,
-      startTime: `${form.startTime}:00`,
-      endTime: `${form.endTime}:00`,
-      numberOfCourts: form.numberOfCourts,
-    };
-
-    await createSession(payload);
-    setDialogOpen(false);
-    setConfirmStep(false);
-    setForm(emptyForm);
-    await loadSessions();
-  } catch (err) {
-    const apiErr = err as { message?: string };
-    setFormError(apiErr.message ?? "Couldn't create the session. Please try again.");
-    setConfirmStep(false);
-  } finally {
-    setCreating(false);
-  }
-};
-
-const handleBackToEdit = () => {
-  setConfirmStep(false);
-  setFormError(null);
-};
-
-  const handleEndSession = async (id: number) => {
-    setEndingId(id);
-    try {
-      await endSession(id);
-      await loadSessions();
-    } catch {
-      setError("Couldn't end that session. Please try again.");
-    } finally {
-      setEndingId(null);
-    }
-  };
-
-  // Copies a public, no-login link players can open to watch the live queue,
-  // courts, and leaderboard for this session.
-  const handleCopyWatchLink = async (sessionId: number) => {
-    const url = `${window.location.origin}/watch/${sessionId}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopiedSessionId(sessionId);
-      setTimeout(() => setCopiedSessionId((current) => (current === sessionId ? null : current)), 2000);
-    } catch {
-      setError("Couldn't copy the link. Please try again.");
-    }
-  };
-
-  const openRoster = async (session: SessionDto) => {
-    setRosterSession(session);
-    setRosterError(null);
-    setAddSearch("");
-    setAddCategoryFilter("All");
-    setRosterLoading(true);
-    try {
-      const [players, roster] = await Promise.all([
-        allPlayers.length > 0 ? Promise.resolve(allPlayers) : getAllPlayers(),
-        getSessionPlayers(session.sessionId),
-      ]);
-      setAllPlayers(players);
-      setRosterPlayers(roster);
-    } catch {
-      setRosterError("Couldn't load the roster for this session.");
-    } finally {
-      setRosterLoading(false);
-    }
-  };
-
-  const closeRoster = () => {
-    setRosterSession(null);
-    setRosterPlayers([]);
-    setRosterError(null);
-  };
-
-  const availablePlayers = useMemo(() => {
-    const rosterIds = new Set(rosterPlayers.map((rp) => rp.playerId));
-    const pool = allPlayers.filter((p) => !rosterIds.has(p.playerId));
-    const q = addSearch.trim().toLowerCase();
-    return pool.filter((p) => {
-      const matchesSearch = !q || p.fullName.toLowerCase().includes(q);
-      const matchesCategory = addCategoryFilter === "All" || p.skillCategory === addCategoryFilter;
-      return matchesSearch && matchesCategory;
-    });
-  }, [allPlayers, rosterPlayers, addSearch, addCategoryFilter]);
-
-  const handleAddToRoster = async (playerId: number) => {
-    if (!rosterSession) return;
-    setPendingPlayerId(playerId);
-    setRosterError(null);
-    try {
-      const added = await addPlayerToSession(rosterSession.sessionId, playerId);
-      setRosterPlayers((prev) => [...prev, added]);
-    } catch (err) {
-      const apiErr = err as { message?: string };
-      setRosterError(apiErr.message ?? "Couldn't add that player. They may already be in this session.");
-    } finally {
-      setPendingPlayerId(null);
-    }
-  };
-
-  const handleRemoveFromRoster = async (playerId: number) => {
-    if (!rosterSession) return;
-    setPendingPlayerId(playerId);
-    setRosterError(null);
-    try {
-      await removePlayerFromSession(rosterSession.sessionId, playerId);
-      setRosterPlayers((prev) => prev.filter((rp) => rp.playerId !== playerId));
-    } catch {
-      setRosterError("Couldn't remove that player. Please try again.");
-    } finally {
-      setPendingPlayerId(null);
-    }
-  };
-
-  const formatDate = (iso: string) => {
-    const d = new Date(iso);
-    return {
-      month: d.toLocaleDateString(undefined, { month: "short" }),
-      day: d.getDate(),
-    };
-  };
-
-  const formatTimeLabel = (hhmm: string) => {
-  const [h, m] = hhmm.split(":").map(Number);
-  const period = h >= 12 ? "PM" : "AM";
-  const hour12 = h % 12 === 0 ? 12 : h % 12;
-  return `${hour12}:${String(m).padStart(2, "0")} ${period}`;
-};
-
-const formatDateLabel = (yyyyMmDd: string) => {
-  const [year, month, day] = yyyyMmDd.split("-").map(Number);
-  return new Date(year, month - 1, day).toLocaleDateString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-};
-
-  return (
-    <AppShell>
-      <PageHeader
-        eyebrow="Sessions"
-        title="Court sessions"
-        subtitle="Schedule, run, and archive your play sessions."
-        action={
-          <Button
-            onClick={() => {
-              setForm(emptyForm);
-              setConfirmStep(false);
-              setFormError(null);
-              setDialogOpen(true);
-            }}
-            className="shrink-0 rounded-full bg-brand text-zinc-900 shadow-lg shadow-brand/30 hover:bg-brand-dark hover:text-white"
-          >
-            <Plus className="size-4" /> New Session
-          </Button>
-        }
-      />
-
-      {loading ? (
-        <div className="flex items-center gap-2 text-sm text-zinc-400">
-          <Loader2 className="size-4 animate-spin" /> Loading sessions…
-        </div>
-      ) : error ? (
-        <p className="text-sm text-red-500">{error}</p>
-      ) : sessions.length === 0 ? (
-        <Panel className="text-center text-sm text-zinc-400">
-          No sessions yet. Create one to get started.
-        </Panel>
-      ) : (
-        <div className="grid gap-4 sm:gap-6">
-          {sortedSessions.map((s) => {
-            const { month, day } = formatDate(s.sessionDate);
-            const isLive = s.status === "Active";
-
-            return (
-              <Panel key={s.sessionId} className="transition-transform hover:scale-[1.005]">
-                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4">
-                  <div className="flex min-w-0 items-center gap-4">
-                    <div className="grid size-14 shrink-0 place-items-center rounded-2xl bg-brand-soft text-brand-dark">
-                      <div className="text-center">
-                        <p className="text-[9px] font-bold uppercase leading-none">{month}</p>
-                        <p className="text-lg font-bold leading-none">{day}</p>
-                      </div>
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h3 className="truncate text-base font-semibold">{s.sessionName}</h3>
-                        {isLive ? (
-                          <span className="pulse-dot rounded-full bg-red-500 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
-                            Live
-                          </span>
-                        ) : (
-                          <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-zinc-500">
-                            Completed
-                          </span>
-                        )}
-                      </div>
-                      <p className="mt-0.5 text-xs text-zinc-500">
-                        {s.startTime.slice(0, 5)}–{s.endTime.slice(0, 5)} • {s.numberOfCourts} courts • {s.totalMatchesPlayed} game
-                        {s.totalMatchesPlayed === 1 ? "" : "s"} played
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Desktop / wide screens: full button row */}
-                  <div className="hidden shrink-0 items-center gap-3 sm:flex">
-                    <Button size="sm" variant="outline" onClick={() => openRoster(s)} className="rounded-full">
-                      <Users className="size-3.5" /> Manage Players
-                    </Button>
-                    {isLive && (
-                      <Button size="sm" variant="outline" asChild className="rounded-full">
-                        <Link to={`/queue?sessionId=${s.sessionId}`}>
-                          <Eye className="size-3.5" /> View Queue
-                        </Link>
-                      </Button>
-                    )}
-                    {!isLive && (
-                      <Button size="sm" variant="outline" asChild className="rounded-full">
-                        <Link to={`/matches?sessionId=${s.sessionId}`}>
-                          <History className="size-3.5" /> View Results
-                        </Link>
-                      </Button>
-                    )}
-                    {isLive && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleCopyWatchLink(s.sessionId)}
-                        className="rounded-full"
-                      >
-                        {copiedSessionId === s.sessionId ? (
-                          <>
-                            <Check className="size-3.5" /> Copied
-                          </>
-                        ) : (
-                          <>
-                            <Share2 className="size-3.5" /> Watch Link
-                          </>
-                        )}
-                      </Button>
-                    )}
-                    {isLive && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={endingId === s.sessionId}
-                        onClick={() => handleEndSession(s.sessionId)}
-                        className="rounded-full"
-                      >
-                        {endingId === s.sessionId ? "Ending…" : "End Session"}
-                      </Button>
-                    )}
-                  </div>
-
-                  {/* Small screens: same actions collapsed into a menu */}
-                  <div className="shrink-0 sm:hidden">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button size="sm" variant="outline" className="size-9 rounded-full p-0">
-                          <MoreVertical className="size-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => openRoster(s)}>
-                          <Users className="size-3.5" /> Manage Players
-                        </DropdownMenuItem>
-                        {isLive ? (
-                          <DropdownMenuItem asChild>
-                            <Link to={`/queue?sessionId=${s.sessionId}`}>
-                              <Eye className="size-3.5" /> View Queue
-                            </Link>
-                          </DropdownMenuItem>
-                        ) : (
-                          <DropdownMenuItem asChild>
-                            <Link to={`/matches?sessionId=${s.sessionId}`}>
-                              <History className="size-3.5" /> View Results
-                            </Link>
-                          </DropdownMenuItem>
-                        )}
-                        {isLive && (
-                          <DropdownMenuItem onClick={() => handleCopyWatchLink(s.sessionId)}>
-                            <Share2 className="size-3.5" /> {copiedSessionId === s.sessionId ? "Copied" : "Watch Link"}
-                          </DropdownMenuItem>
-                        )}
-                        {isLive && (
-                          <DropdownMenuItem
-                            onClick={() => handleEndSession(s.sessionId)}
-                            disabled={endingId === s.sessionId}
-                            className="text-red-500 focus:text-red-500"
-                          >
-                            <Square className="size-3.5" /> {endingId === s.sessionId ? "Ending…" : "End Session"}
-                          </DropdownMenuItem>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </div>
-              </Panel>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Create session dialog */}
-      <Dialog
-        open={dialogOpen}
-        onOpenChange={(open) => {
-          setDialogOpen(open);
-          if (!open) setConfirmStep(false);
-        }}
-      >
-        <DialogContent>
-          {!confirmStep ? (
-            <>
-              <DialogHeader>
-                <DialogTitle>Start a new session</DialogTitle>
-                <DialogDescription>Set the date, time, and courts. You can adjust the roster after.</DialogDescription>
-              </DialogHeader>
-
-              <form onSubmit={handleReviewSubmit} className="flex flex-col gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="sessionName">Session name</Label>
-                  <Input
-                    id="sessionName"
-                    required
-                    value={form.sessionName}
-                    onChange={(e) => setForm((f) => ({ ...f, sessionName: e.target.value }))}
-                    placeholder="Morning Open Play"
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="sessionDate">Date</Label>
-                  <Input
-                    id="sessionDate"
-                    type="date"
-                    required
-                    value={form.sessionDate}
-                    onChange={(e) => setForm((f) => ({ ...f, sessionDate: e.target.value }))}
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="startTime">Start time</Label>
-                    <Input
-                      id="startTime"
-                      type="time"
-                      required
-                      value={form.startTime}
-                      onChange={(e) => setForm((f) => ({ ...f, startTime: e.target.value }))}
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="endTime">End time</Label>
-                    <Input
-                      id="endTime"
-                      type="time"
-                      required
-                      value={form.endTime}
-                      onChange={(e) => setForm((f) => ({ ...f, endTime: e.target.value }))}
-                    />
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="numberOfCourts">Number of courts</Label>
-                  <Input
-                    id="numberOfCourts"
-                    type="number"
-                    min={1}
-                    required
-                    value={form.numberOfCourts}
-                    onChange={(e) => setForm((f) => ({ ...f, numberOfCourts: Number(e.target.value) }))}
-                  />
-                </div>
-
-                {formError && <p className="text-sm text-red-500">{formError}</p>}
-
-                <DialogFooter>
-                  <Button type="submit" className="w-full">
-                    Review session
-                  </Button>
-                </DialogFooter>
-              </form>
-            </>
-          ) : (
-            <>
-              <DialogHeader>
-                <DialogTitle>Double-check before creating</DialogTitle>
-                <DialogDescription>Make sure everything below is correct.</DialogDescription>
-              </DialogHeader>
-
-              <div className="flex flex-col gap-3 rounded-xl bg-zinc-50 p-4">
-                <ReviewRow label="Name" value={form.sessionName.trim()} />
-                <ReviewRow label="Date" value={formatDateLabel(form.sessionDate)} />
-                <ReviewRow
-                  label="Time"
-                  value={`${formatTimeLabel(form.startTime)} – ${formatTimeLabel(form.endTime)}`}
-                />
-                <ReviewRow label="Courts" value={String(form.numberOfCourts)} />
-              </div>
-
-              {formError && <p className="text-sm text-red-500">{formError}</p>}
-
-              <DialogFooter className="gap-2 sm:gap-2">
-                <Button type="button" variant="outline" onClick={handleBackToEdit} disabled={creating} className="flex-1">
-                  Back
-                </Button>
-                <Button type="button" onClick={handleConfirmCreate} disabled={creating} className="flex-1">
-                  {creating ? "Creating…" : "Confirm & create"}
-                </Button>
-              </DialogFooter>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Manage players dialog */}
-      <Dialog open={!!rosterSession} onOpenChange={(open) => !open && closeRoster()}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Players — {rosterSession?.sessionName}</DialogTitle>
-            <DialogDescription>
-              Add or remove players from this session. Pair-locking is on the Queue page.
-            </DialogDescription>
-          </DialogHeader>
-
-          {rosterLoading ? (
-            <div className="flex items-center gap-2 py-6 text-sm text-zinc-400">
-              <Loader2 className="size-4 animate-spin" /> Loading roster…
-            </div>
-          ) : (
-            <div className="flex flex-col gap-5">
-              {rosterError && <p className="text-sm text-red-500">{rosterError}</p>}
-
-              <div>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                  In this session ({rosterPlayers.length})
-                </p>
-                {rosterPlayers.length === 0 ? (
-                  <p className="text-sm text-zinc-400">No players added yet.</p>
-                ) : (
-                  <div className="flex max-h-64 flex-col gap-1.5 overflow-y-auto">
-                    {rosterPlayers.map((rp) => (
-                      <div key={rp.playerId} className="flex items-center justify-between rounded-xl bg-zinc-50 px-3 py-2">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5">
-                            <p className="truncate text-sm font-medium">{rp.fullName}</p>
-                            <span
-                              className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
-                                TIER_STYLE[rp.skillCategory] ?? "bg-zinc-200 text-zinc-700"
-                              }`}
-                            >
-                              {rp.skillCategory}
-                            </span>
-                          </div>
-                          <p className="text-xs text-zinc-400">
-                            {rp.gamesPlayedInSession} game{rp.gamesPlayedInSession === 1 ? "" : "s"} played
-                            {rp.lockedPartnerName ? ` • 🔒 paired with ${rp.lockedPartnerName}` : ""}
-                          </p>
-                        </div>
-                        <button
-                          onClick={() => handleRemoveFromRoster(rp.playerId)}
-                          disabled={pendingPlayerId === rp.playerId}
-                          className="grid size-7 shrink-0 place-items-center rounded-full text-zinc-400 hover:bg-red-50 hover:text-red-500 disabled:opacity-50"
-                          aria-label={`Remove ${rp.fullName}`}
-                        >
-                          <X className="size-3.5" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                  Add from roster ({availablePlayers.length})
-                </p>
-                <Input
-                  value={addSearch}
-                  onChange={(e) => setAddSearch(e.target.value)}
-                  placeholder="Search players to add…"
-                  className="mb-2"
-                />
-                <div className="mb-2 flex flex-wrap gap-1.5">
-                  {["All", ...SKILL_CATEGORIES].map((cat) => (
-                    <button
-                      key={cat}
-                      onClick={() => setAddCategoryFilter(cat)}
-                      className={`rounded-full px-2.5 py-1 text-[11px] font-bold transition-colors ${
-                        addCategoryFilter === cat
-                          ? "bg-ink text-white"
-                          : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
-                      }`}
-                    >
-                      {cat}
-                    </button>
-                  ))}
-                </div>
-                {availablePlayers.length === 0 ? (
-                  <p className="text-sm text-zinc-400">
-                    {allPlayers.length === 0
-                      ? "You don't have any players yet."
-                      : "No players match your search or filter."}
-                  </p>
-                ) : (
-                  <div className="flex max-h-64 flex-col gap-1.5 overflow-y-auto">
-                    {availablePlayers.map((p) => (
-                      <div
-                        key={p.playerId}
-                        className="flex items-center justify-between rounded-xl px-3 py-2 ring-1 ring-zinc-100"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5">
-                            <p className="truncate text-sm font-medium">{p.fullName}</p>
-                            <span
-                              className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
-                                TIER_STYLE[p.skillCategory] ?? "bg-zinc-200 text-zinc-700"
-                              }`}
-                            >
-                              {p.skillCategory}
-                            </span>
-                          </div>
-                        </div>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={pendingPlayerId === p.playerId}
-                          onClick={() => handleAddToRoster(p.playerId)}
-                          className="rounded-full"
-                        >
-                          {pendingPlayerId === p.playerId ? "Adding…" : "Add"}
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-    </AppShell>
-  );
-}
-
-function ReviewRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between text-sm">
-      <span className="text-zinc-500">{label}</span>
-      <span className="font-semibold">{value}</span>
-    </div>
-  );
-}
-</file>
-
-<file path="src/components/app-shell.tsx">
-import { Link, useLocation, useNavigate } from "react-router-dom";
-import { type ReactNode } from "react";
-import { PickleballIcon } from "../components/icons/pickleball-icons";
-import { getStoredOrganizer, logout } from "@/services/auth";
-
-const NAV: { label: string; to: string }[] = [
-  { label: "Dashboard", to: "/dashboard" },
-  { label: "Sessions", to: "/sessions" },
-  { label: "Players", to: "/players" },
-  { label: "Queue", to: "/queue" },
-  { label: "Matches", to: "/matches" },
-  { label: "Leaderboard", to: "/leaderboard" },
-];
-
-// "Jeevon Ricafort" -> "JR". Falls back gracefully for single-word or missing names.
-function getInitials(fullName: string | undefined): string {
-  if (!fullName) return "?";
-  const parts = fullName.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
-export function AppShell({ children }: { children: ReactNode }) {
-  const { pathname } = useLocation();
-  const navigate = useNavigate();
-  const organizer = getStoredOrganizer();
-  const initials = getInitials(organizer?.fullName);
-
-  const handleLogout = () => {
-    logout();
-    navigate("/", { replace: true });
-  };
-
-  return (
-    <div className="relative min-h-screen overflow-x-hidden bg-linear-to-b from-zinc-50 via-white to-brand-soft/30 font-sans text-zinc-900">
-      {/* Deliberately restrained — a couple of very soft, static color washes plus a
-          faint dot texture. No competing animated blobs, no strong colors behind
-          text: white Panel cards need to stay the clear visual focus on every page. */}
-      <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-        <div className="absolute -left-32 -top-32 size-[26rem] rounded-full bg-brand/10 blur-3xl" />
-        <div className="absolute -bottom-40 -right-32 size-[30rem] rounded-full bg-ball/10 blur-3xl" />
-        <div
-          className="absolute inset-0 opacity-[0.035]"
-          style={{
-            backgroundImage: "radial-gradient(currentColor 1px, transparent 1px)",
-            backgroundSize: "22px 22px",
-          }}
-        />
-      </div>
-      <nav className="sticky top-0 z-50 border-b border-zinc-200 bg-white/85 backdrop-blur-md">
-        <div className="mx-auto grid max-w-7xl grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3 sm:px-6">
-          <div className="flex min-w-0 items-center gap-4 lg:gap-8">
-            <Link to="/dashboard" className="flex shrink-0 items-center gap-2">
-              <PickleballIcon spin className="size-8" />
-              <span className="text-base font-bold tracking-tight">
-                MixFlow<span className="text-brand-dark">.</span>
-              </span>
-            </Link>
-            <div className="hidden min-w-0 gap-1 md:flex">
-              {NAV.map((item) => {
-                const active = pathname === item.to;
-                return (
-                  <Link
-                    key={item.label}
-                    to={item.to}
-                    className={`relative rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
-                      active
-                        ? "bg-ink text-white"
-                        : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
-                    }`}
-                  >
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-3">
-            <button
-              type="button"
-              onClick={handleLogout}
-              title="Log out"
-              className="rounded-full bg-zinc-100 p-1 text-zinc-500 transition-colors hover:bg-zinc-200 hover:text-zinc-900">
-              <span className="sr-only">Logout</span>
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={1.5}
-                stroke="currentColor"
-                className="size-7"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75"
-                />
-              </svg>
-            </button>
-            <div
-              title={organizer?.fullName}
-              className="grid size-9 shrink-0 place-items-center rounded-full bg-linear-to-br from-ball to-brand text-[11px] font-bold text-zinc-900 ring-2 ring-white shadow-sm"
-            >
-              {initials}
-            </div>
-          </div>
-        </div>
-        <div className="flex gap-1 overflow-x-auto px-4 pb-2 md:hidden">
-          {NAV.map((item) => {
-            const active = pathname === item.to;
-            return (
-              <Link
-                key={item.label}
-                to={item.to}
-                className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${
-                  active ? "bg-ink text-white" : "bg-zinc-100 text-zinc-600"
-                }`}
-              >
-                {item.label}
-              </Link>
-            );
-          })}
-        </div>
-      </nav>
-      <main className="relative z-10 mx-auto max-w-7xl p-4 sm:p-6">{children}</main>
-    </div>
-  );
-}
-
-export function PageHeader({
-  eyebrow,
-  title,
-  subtitle,
-  action,
-}: {
-  eyebrow?: string;
-  title: string;
-  subtitle?: string;
-  action?: ReactNode;
-}) {
-  return (
-    <header className="mb-6 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-4">
-      <div className="min-w-0">
-        {eyebrow && (
-          <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.15em] text-brand-dark">
-            {eyebrow}
-          </p>
-        )}
-        <h1 className="truncate text-2xl font-bold tracking-tight sm:text-3xl">{title}</h1>
-        {subtitle && <p className="mt-1 text-sm text-zinc-500">{subtitle}</p>}
-      </div>
-      {action}
-    </header>
-  );
-}
-
-export function Panel({
-  children,
-  className = "",
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <section
-      className={`rounded-[20px] bg-white p-5 ring-1 ring-black/5 sm:p-6 ${className}`}
-    >
-      {children}
-    </section>
-  );
-}
-</file>
-
 <file path="src/pages/Queue.tsx">
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -8971,8 +8293,10 @@ export default function QueuePage() {
                   className="relative cursor-pointer overflow-hidden rounded-[20px] bg-[#8ba668] p-4 text-white ring-1 ring-black/10 transition-transform hover:scale-[1.01]"
                 >
                   <div className="relative">
-                    <div className="mb-4 flex items-center justify-between">
-                      <p className="text-xs font-black uppercase tracking-[0.2em] text-white">Next Up</p>
+                    <div className="mb-1 flex items-center justify-between">
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-white">
+                        {slot === 0 ? "Next Up" : "On Deck"}
+                      </p>
                       <Button
                         size="sm"
                         onClick={() => openEdit(match)}
@@ -8982,6 +8306,11 @@ export default function QueuePage() {
                         <Pencil className="size-3.5" />
                       </Button>
                     </div>
+                    <p className="mb-3 text-[10px] font-semibold text-white/70">
+                      {slot === 0
+                        ? "Fills the very next court that opens up"
+                        : "Fills the court after that"}
+                    </p>
                     <div className="grid grid-cols-[1fr_56px_1fr] overflow-hidden rounded-xl border-[4px] border-white">
                       <div className="grid grid-rows-2 divide-y-[3px] divide-white bg-[#4a7a9c]">
                         {match.team1.map((p) => (
@@ -9008,7 +8337,9 @@ export default function QueuePage() {
                   key={slot}
                   className="flex flex-col items-center justify-center border-2 border-dashed border-zinc-200 bg-zinc-50 p-6 text-center"
                 >
-                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400">Next Up</p>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400">
+                    {slot === 0 ? "Next Up" : "On Deck"}
+                  </p>
                   <p className="mt-2 text-sm text-zinc-500">
                     {queue.length < 4 ? `Need ${4 - queue.length} more queued` : "Preparing…"}
                   </p>
@@ -9273,6 +8604,729 @@ function StatRow({ label, value }: { label: string; value: string }) {
 }
 </file>
 
+<file path="src/pages/Sessions.tsx">
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
+import { Plus, Loader2, Users, X, Share2, Check, Eye, History, MoreVertical, Square } from "lucide-react";
+import { AppShell, PageHeader, Panel } from "@/components/app-shell";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
+import {
+  createSession,
+  getMySessions,
+  endSession,
+  addPlayerToSession,
+  getSessionPlayers,
+  removePlayerFromSession,
+} from "@/services/sessions";
+import { getAllPlayers } from "@/services/players";
+import type { CreateSessionPayload, SessionDto, SessionPlayerDto } from "@/services/sessions";
+import type { PlayerDto } from "@/services/players";
+
+const SKILL_CATEGORIES = ["Novice", "Intermediate", "Advanced"] as const;
+
+// Same skill-tier color coding as the Players page, so category reads consistently everywhere.
+const TIER_STYLE: Record<string, string> = {
+  Advanced: "bg-ink text-white",
+  Intermediate: "bg-brand text-zinc-900",
+  Novice: "bg-zinc-200 text-zinc-700",
+};
+
+const emptyForm = {
+  sessionName: "",
+  sessionDate: "",
+  startTime: "",
+  endTime: "",
+  numberOfCourts: 4,
+};
+
+// Lock/unlock pairing lives on the Queue page — that's where the organizer is
+// actually looking when deciding who should play together, and it needs to react to
+// who's currently queued/in-match, which this dialog doesn't track.
+export default function SessionsPage() {
+  const [sessions, setSessions] = useState<SessionDto[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [form, setForm] = useState(emptyForm);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+
+  const [endingId, setEndingId] = useState<number | null>(null);
+  const [copiedSessionId, setCopiedSessionId] = useState<number | null>(null);
+
+  // Roster management
+  const [rosterSession, setRosterSession] = useState<SessionDto | null>(null);
+  const [rosterPlayers, setRosterPlayers] = useState<SessionPlayerDto[]>([]);
+  const [allPlayers, setAllPlayers] = useState<PlayerDto[]>([]);
+  const [rosterLoading, setRosterLoading] = useState(false);
+  const [rosterError, setRosterError] = useState<string | null>(null);
+  const [pendingPlayerId, setPendingPlayerId] = useState<number | null>(null);
+  const [addSearch, setAddSearch] = useState("");
+  const [addCategoryFilter, setAddCategoryFilter] = useState<string>("All");
+
+  const [confirmStep, setConfirmStep] = useState(false);
+
+  const loadSessions = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await getMySessions();
+      setSessions(data);
+    } catch {
+      setError("Couldn't load sessions.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadSessions();
+  }, []);
+
+  // Live sessions always float to the top, regardless of date — an organizer
+  // actively running a session shouldn't have to scroll past history to find it.
+  const sortedSessions = useMemo(() => {
+    return [...sessions].sort((a, b) => {
+      const aLive = a.status === "Active" ? 1 : 0;
+      const bLive = b.status === "Active" ? 1 : 0;
+      if (aLive !== bLive) return bLive - aLive;
+
+      return new Date(b.sessionDate).getTime() - new Date(a.sessionDate).getTime();
+    });
+  }, [sessions]);
+
+  const getTodayLocalDateString = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const validateSessionForm = (values: typeof emptyForm): string | null => {
+  if (!values.sessionName.trim()) {
+    return "Give the session a name.";
+  }
+  if (!values.sessionDate) {
+    return "Pick a date for the session.";
+  }
+  if (values.sessionDate < getTodayLocalDateString()) {
+    return "The session date can't be in the past.";
+  }
+  if (!values.startTime || !values.endTime) {
+    return "Set both a start time and an end time.";
+  }
+  if (values.startTime >= values.endTime) {
+    return "End time must be after start time.";
+  }
+  if (!Number.isInteger(values.numberOfCourts) || values.numberOfCourts < 1) {
+    return "Number of courts must be at least 1.";
+  }
+  return null;
+};
+
+const handleReviewSubmit = (e: FormEvent) => {
+  e.preventDefault();
+  setFormError(null);
+
+  const validationError = validateSessionForm(form);
+  if (validationError) {
+    setFormError(validationError);
+    return;
+  }
+
+  setConfirmStep(true);
+};
+
+const handleConfirmCreate = async () => {
+  setFormError(null);
+  setCreating(true);
+  try {
+    const payload: CreateSessionPayload = {
+      sessionName: form.sessionName.trim(),
+      sessionDate: form.sessionDate,
+      startTime: `${form.startTime}:00`,
+      endTime: `${form.endTime}:00`,
+      numberOfCourts: form.numberOfCourts,
+    };
+
+    await createSession(payload);
+    setDialogOpen(false);
+    setConfirmStep(false);
+    setForm(emptyForm);
+    await loadSessions();
+  } catch (err) {
+    const apiErr = err as { message?: string };
+    setFormError(apiErr.message ?? "Couldn't create the session. Please try again.");
+    setConfirmStep(false);
+  } finally {
+    setCreating(false);
+  }
+};
+
+const handleBackToEdit = () => {
+  setConfirmStep(false);
+  setFormError(null);
+};
+
+  const handleEndSession = async (id: number) => {
+    setEndingId(id);
+    try {
+      await endSession(id);
+      await loadSessions();
+    } catch {
+      setError("Couldn't end that session. Please try again.");
+    } finally {
+      setEndingId(null);
+    }
+  };
+
+  // Copies a public, no-login link players can open to watch the live queue,
+  // courts, and leaderboard for this session.
+  const handleCopyWatchLink = async (sessionId: number) => {
+    const url = `${window.location.origin}/watch/${sessionId}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedSessionId(sessionId);
+      setTimeout(() => setCopiedSessionId((current) => (current === sessionId ? null : current)), 2000);
+    } catch {
+      setError("Couldn't copy the link. Please try again.");
+    }
+  };
+
+  const openRoster = async (session: SessionDto) => {
+    setRosterSession(session);
+    setRosterError(null);
+    setAddSearch("");
+    setAddCategoryFilter("All");
+    setRosterLoading(true);
+    try {
+      const [players, roster] = await Promise.all([
+        allPlayers.length > 0 ? Promise.resolve(allPlayers) : getAllPlayers(),
+        getSessionPlayers(session.sessionId),
+      ]);
+      setAllPlayers(players);
+      setRosterPlayers(roster);
+    } catch {
+      setRosterError("Couldn't load the roster for this session.");
+    } finally {
+      setRosterLoading(false);
+    }
+  };
+
+  const closeRoster = () => {
+    setRosterSession(null);
+    setRosterPlayers([]);
+    setRosterError(null);
+  };
+
+  const availablePlayers = useMemo(() => {
+    const rosterIds = new Set(rosterPlayers.map((rp) => rp.playerId));
+    const pool = allPlayers.filter((p) => !rosterIds.has(p.playerId));
+    const q = addSearch.trim().toLowerCase();
+    return pool.filter((p) => {
+      const matchesSearch = !q || p.fullName.toLowerCase().includes(q);
+      const matchesCategory = addCategoryFilter === "All" || p.skillCategory === addCategoryFilter;
+      return matchesSearch && matchesCategory;
+    });
+  }, [allPlayers, rosterPlayers, addSearch, addCategoryFilter]);
+
+  const handleAddToRoster = async (playerId: number) => {
+    if (!rosterSession) return;
+    setPendingPlayerId(playerId);
+    setRosterError(null);
+    try {
+      const added = await addPlayerToSession(rosterSession.sessionId, playerId);
+      setRosterPlayers((prev) => [...prev, added]);
+    } catch (err) {
+      const apiErr = err as { message?: string };
+      setRosterError(apiErr.message ?? "Couldn't add that player. They may already be in this session.");
+    } finally {
+      setPendingPlayerId(null);
+    }
+  };
+
+  const handleRemoveFromRoster = async (playerId: number) => {
+    if (!rosterSession) return;
+    setPendingPlayerId(playerId);
+    setRosterError(null);
+    try {
+      await removePlayerFromSession(rosterSession.sessionId, playerId);
+      setRosterPlayers((prev) => prev.filter((rp) => rp.playerId !== playerId));
+    } catch {
+      setRosterError("Couldn't remove that player. Please try again.");
+    } finally {
+      setPendingPlayerId(null);
+    }
+  };
+
+  const formatDate = (iso: string) => {
+    const d = new Date(iso);
+    return {
+      month: d.toLocaleDateString(undefined, { month: "short" }),
+      day: d.getDate(),
+    };
+  };
+
+  const formatTimeLabel = (hhmm: string) => {
+  const [h, m] = hhmm.split(":").map(Number);
+  const period = h >= 12 ? "PM" : "AM";
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}:${String(m).padStart(2, "0")} ${period}`;
+};
+
+const formatDateLabel = (yyyyMmDd: string) => {
+  const [year, month, day] = yyyyMmDd.split("-").map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+};
+
+  return (
+    <AppShell>
+      <PageHeader
+        eyebrow="Sessions"
+        title="Court sessions"
+        subtitle="Schedule, run, and archive your play sessions."
+        action={
+          <Button
+            onClick={() => {
+              setForm(emptyForm);
+              setConfirmStep(false);
+              setFormError(null);
+              setDialogOpen(true);
+            }}
+            className="shrink-0 rounded-full bg-brand text-zinc-900 shadow-lg shadow-brand/30 hover:bg-brand-dark hover:text-white"
+          >
+            <Plus className="size-4" /> New Session
+          </Button>
+        }
+      />
+
+      {loading ? (
+        <div className="flex items-center gap-2 text-sm text-zinc-400">
+          <Loader2 className="size-4 animate-spin" /> Loading sessions…
+        </div>
+      ) : error ? (
+        <p className="text-sm text-red-500">{error}</p>
+      ) : sessions.length === 0 ? (
+        <Panel className="text-center text-sm text-zinc-400">
+          No sessions yet. Create one to get started.
+        </Panel>
+      ) : (
+        <div className="grid gap-4 sm:gap-6">
+          {sortedSessions.map((s) => {
+            const { month, day } = formatDate(s.sessionDate);
+            const isLive = s.status === "Active";
+
+            return (
+              <Panel key={s.sessionId} className="transition-transform hover:scale-[1.005]">
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4">
+                  <div className="flex min-w-0 items-center gap-4">
+                    <div className="grid size-14 shrink-0 place-items-center rounded-2xl bg-brand-soft text-brand-dark">
+                      <div className="text-center">
+                        <p className="text-[9px] font-bold uppercase leading-none">{month}</p>
+                        <p className="text-lg font-bold leading-none">{day}</p>
+                      </div>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h3 className="truncate text-base font-semibold">{s.sessionName}</h3>
+                        {isLive ? (
+                          <span className="pulse-dot rounded-full bg-red-500 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
+                            Live
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-zinc-500">
+                            Completed
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-0.5 text-xs text-zinc-500">
+                        {s.startTime.slice(0, 5)}–{s.endTime.slice(0, 5)} • {s.numberOfCourts} courts • {s.totalMatchesPlayed} game
+                        {s.totalMatchesPlayed === 1 ? "" : "s"} played
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Desktop / wide screens: full button row */}
+                  <div className="hidden shrink-0 items-center gap-3 sm:flex">
+                    {isLive && (
+                      <Button size="sm" variant="outline" onClick={() => openRoster(s)} className="rounded-full">
+                        <Users className="size-3.5" /> Manage Players
+                      </Button>
+                    )}
+                    {isLive && (
+                      <Button size="sm" variant="outline" asChild className="rounded-full">
+                        <Link to={`/queue?sessionId=${s.sessionId}`}>
+                          <Eye className="size-3.5" /> View Queue
+                        </Link>
+                      </Button>
+                    )}
+                    {!isLive && (
+                      <Button size="sm" variant="outline" asChild className="rounded-full">
+                        <Link to={`/matches?sessionId=${s.sessionId}`}>
+                          <History className="size-3.5" /> View Results
+                        </Link>
+                      </Button>
+                    )}
+                    {isLive && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleCopyWatchLink(s.sessionId)}
+                        className="rounded-full"
+                      >
+                        {copiedSessionId === s.sessionId ? (
+                          <>
+                            <Check className="size-3.5" /> Copied
+                          </>
+                        ) : (
+                          <>
+                            <Share2 className="size-3.5" /> Watch Link
+                          </>
+                        )}
+                      </Button>
+                    )}
+                    {isLive && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={endingId === s.sessionId}
+                        onClick={() => handleEndSession(s.sessionId)}
+                        className="rounded-full"
+                      >
+                        {endingId === s.sessionId ? "Ending…" : "End Session"}
+                      </Button>
+                    )}
+                  </div>
+
+                  {/* Small screens: same actions collapsed into a menu */}
+                  <div className="shrink-0 sm:hidden">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="sm" variant="outline" className="size-9 rounded-full p-0">
+                          <MoreVertical className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        {isLive && (
+                          <DropdownMenuItem onClick={() => openRoster(s)}>
+                            <Users className="size-3.5" /> Manage Players
+                          </DropdownMenuItem>
+                        )}
+                        {isLive ? (
+                          <DropdownMenuItem asChild>
+                            <Link to={`/queue?sessionId=${s.sessionId}`}>
+                              <Eye className="size-3.5" /> View Queue
+                            </Link>
+                          </DropdownMenuItem>
+                        ) : (
+                          <DropdownMenuItem asChild>
+                            <Link to={`/matches?sessionId=${s.sessionId}`}>
+                              <History className="size-3.5" /> View Results
+                            </Link>
+                          </DropdownMenuItem>
+                        )}
+                        {isLive && (
+                          <DropdownMenuItem onClick={() => handleCopyWatchLink(s.sessionId)}>
+                            <Share2 className="size-3.5" /> {copiedSessionId === s.sessionId ? "Copied" : "Watch Link"}
+                          </DropdownMenuItem>
+                        )}
+                        {isLive && (
+                          <DropdownMenuItem
+                            onClick={() => handleEndSession(s.sessionId)}
+                            disabled={endingId === s.sessionId}
+                            className="text-red-500 focus:text-red-500"
+                          >
+                            <Square className="size-3.5" /> {endingId === s.sessionId ? "Ending…" : "End Session"}
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </div>
+              </Panel>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Create session dialog */}
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          setDialogOpen(open);
+          if (!open) setConfirmStep(false);
+        }}
+      >
+        <DialogContent>
+          {!confirmStep ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>Start a new session</DialogTitle>
+                <DialogDescription>Set the date, time, and courts. You can adjust the roster after.</DialogDescription>
+              </DialogHeader>
+
+              <form onSubmit={handleReviewSubmit} className="flex flex-col gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="sessionName">Session name</Label>
+                  <Input
+                    id="sessionName"
+                    required
+                    value={form.sessionName}
+                    onChange={(e) => setForm((f) => ({ ...f, sessionName: e.target.value }))}
+                    placeholder="Morning Open Play"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="sessionDate">Date</Label>
+                  <Input
+                    id="sessionDate"
+                    type="date"
+                    required
+                    value={form.sessionDate}
+                    onChange={(e) => setForm((f) => ({ ...f, sessionDate: e.target.value }))}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="startTime">Start time</Label>
+                    <Input
+                      id="startTime"
+                      type="time"
+                      required
+                      value={form.startTime}
+                      onChange={(e) => setForm((f) => ({ ...f, startTime: e.target.value }))}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="endTime">End time</Label>
+                    <Input
+                      id="endTime"
+                      type="time"
+                      required
+                      value={form.endTime}
+                      onChange={(e) => setForm((f) => ({ ...f, endTime: e.target.value }))}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="numberOfCourts">Number of courts</Label>
+                  <Input
+                    id="numberOfCourts"
+                    type="number"
+                    min={1}
+                    required
+                    value={form.numberOfCourts}
+                    onChange={(e) => setForm((f) => ({ ...f, numberOfCourts: Number(e.target.value) }))}
+                  />
+                </div>
+
+                {formError && <p className="text-sm text-red-500">{formError}</p>}
+
+                <DialogFooter>
+                  <Button type="submit" className="w-full">
+                    Review session
+                  </Button>
+                </DialogFooter>
+              </form>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle>Double-check before creating</DialogTitle>
+                <DialogDescription>Make sure everything below is correct.</DialogDescription>
+              </DialogHeader>
+
+              <div className="flex flex-col gap-3 rounded-xl bg-zinc-50 p-4">
+                <ReviewRow label="Name" value={form.sessionName.trim()} />
+                <ReviewRow label="Date" value={formatDateLabel(form.sessionDate)} />
+                <ReviewRow
+                  label="Time"
+                  value={`${formatTimeLabel(form.startTime)} – ${formatTimeLabel(form.endTime)}`}
+                />
+                <ReviewRow label="Courts" value={String(form.numberOfCourts)} />
+              </div>
+
+              {formError && <p className="text-sm text-red-500">{formError}</p>}
+
+              <DialogFooter className="gap-2 sm:gap-2">
+                <Button type="button" variant="outline" onClick={handleBackToEdit} disabled={creating} className="flex-1">
+                  Back
+                </Button>
+                <Button type="button" onClick={handleConfirmCreate} disabled={creating} className="flex-1">
+                  {creating ? "Creating…" : "Confirm & create"}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Manage players dialog */}
+      <Dialog open={!!rosterSession} onOpenChange={(open) => !open && closeRoster()}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Players — {rosterSession?.sessionName}</DialogTitle>
+            <DialogDescription>
+              Add or remove players from this session. Pair-locking is on the Queue page.
+            </DialogDescription>
+          </DialogHeader>
+
+          {rosterLoading ? (
+            <div className="flex items-center gap-2 py-6 text-sm text-zinc-400">
+              <Loader2 className="size-4 animate-spin" /> Loading roster…
+            </div>
+          ) : (
+            <div className="flex flex-col gap-5">
+              {rosterError && <p className="text-sm text-red-500">{rosterError}</p>}
+
+              <div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                  In this session ({rosterPlayers.length})
+                </p>
+                {rosterPlayers.length === 0 ? (
+                  <p className="text-sm text-zinc-400">No players added yet.</p>
+                ) : (
+                  <div className="flex max-h-64 flex-col gap-1.5 overflow-y-auto">
+                    {rosterPlayers.map((rp) => (
+                      <div key={rp.playerId} className="flex items-center justify-between rounded-xl bg-zinc-50 px-3 py-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <p className="truncate text-sm font-medium">{rp.fullName}</p>
+                            <span
+                              className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
+                                TIER_STYLE[rp.skillCategory] ?? "bg-zinc-200 text-zinc-700"
+                              }`}
+                            >
+                              {rp.skillCategory}
+                            </span>
+                          </div>
+                          <p className="text-xs text-zinc-400">
+                            {rp.gamesPlayedInSession} game{rp.gamesPlayedInSession === 1 ? "" : "s"} played
+                            {rp.lockedPartnerName ? ` • 🔒 paired with ${rp.lockedPartnerName}` : ""}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => handleRemoveFromRoster(rp.playerId)}
+                          disabled={pendingPlayerId === rp.playerId}
+                          className="grid size-7 shrink-0 place-items-center rounded-full text-zinc-400 hover:bg-red-50 hover:text-red-500 disabled:opacity-50"
+                          aria-label={`Remove ${rp.fullName}`}
+                        >
+                          <X className="size-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                  Add from roster ({availablePlayers.length})
+                </p>
+                <Input
+                  value={addSearch}
+                  onChange={(e) => setAddSearch(e.target.value)}
+                  placeholder="Search players to add…"
+                  className="mb-2"
+                />
+                <div className="mb-2 flex flex-wrap gap-1.5">
+                  {["All", ...SKILL_CATEGORIES].map((cat) => (
+                    <button
+                      key={cat}
+                      onClick={() => setAddCategoryFilter(cat)}
+                      className={`rounded-full px-2.5 py-1 text-[11px] font-bold transition-colors ${
+                        addCategoryFilter === cat
+                          ? "bg-ink text-white"
+                          : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+                {availablePlayers.length === 0 ? (
+                  <p className="text-sm text-zinc-400">
+                    {allPlayers.length === 0
+                      ? "You don't have any players yet."
+                      : "No players match your search or filter."}
+                  </p>
+                ) : (
+                  <div className="flex max-h-64 flex-col gap-1.5 overflow-y-auto">
+                    {availablePlayers.map((p) => (
+                      <div
+                        key={p.playerId}
+                        className="flex items-center justify-between rounded-xl px-3 py-2 ring-1 ring-zinc-100"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <p className="truncate text-sm font-medium">{p.fullName}</p>
+                            <span
+                              className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
+                                TIER_STYLE[p.skillCategory] ?? "bg-zinc-200 text-zinc-700"
+                              }`}
+                            >
+                              {p.skillCategory}
+                            </span>
+                          </div>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={pendingPlayerId === p.playerId}
+                          onClick={() => handleAddToRoster(p.playerId)}
+                          className="rounded-full"
+                        >
+                          {pendingPlayerId === p.playerId ? "Adding…" : "Add"}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </AppShell>
+  );
+}
+
+function ReviewRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between text-sm">
+      <span className="text-zinc-500">{label}</span>
+      <span className="font-semibold">{value}</span>
+    </div>
+  );
+}
+</file>
+
 <file path="src/services/api/client.ts">
 import axios, { type AxiosError } from "axios";
 import { getToken, clearSession } from "../auth/session.storage";
@@ -9337,6 +9391,7 @@ import {
   DialogClose,
 } from "@/components/ui/dialog";
 import { getActiveSession, getSessionById } from "@/services/sessions";
+import { getSessionLeaderboard } from "@/services/leaderboard";
 import {
   getActiveMatches,
   getCompletedMatches,
@@ -9348,6 +9403,7 @@ import {
 } from "@/services/matches";
 import type { SessionDto } from "@/services/sessions";
 import type { MatchDto, QueueEntryDto } from "@/services/matches";
+import type { LeaderboardPlayerDto } from "@/services/leaderboard";
 
 const CARD_WIDTH = 340;
 const GAP = 24;
@@ -9372,6 +9428,7 @@ export default function MatchesPage() {
   const [completedMatches, setCompletedMatches] = useState<MatchDto[]>([]);
   const [queue, setQueue] = useState<QueueEntryDto[]>([]);
   const [nextUpMatches, setNextUpMatches] = useState<MatchDto[]>([]);
+  const [sessionPlayerStats, setSessionPlayerStats] = useState<LeaderboardPlayerDto[]>([]);
   const [dataLoading, setDataLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -9425,9 +9482,14 @@ export default function MatchesPage() {
         setNextUpMatches(nextUp);
       } else {
         // Ended session: only the final results matter — skip the live-only calls
-        // (queue/next-up/active are meaningless once a session is over).
-        const completed = await getCompletedMatches(sessionId);
+        // (queue/next-up/active are meaningless once a session is over). Also pull
+        // per-session player stats for the "All Players" summary table.
+        const [completed, stats] = await Promise.all([
+          getCompletedMatches(sessionId),
+          getSessionLeaderboard(sessionId),
+        ]);
         setCompletedMatches(completed);
+        setSessionPlayerStats(stats);
         setActiveMatches([]);
         setQueue([]);
         setNextUpMatches([]);
@@ -9687,27 +9749,96 @@ export default function MatchesPage() {
                   {isLive ? "No completed matches yet this session." : "No matches were recorded in this session."}
                 </p>
               ) : (
-                <div className="max-h-96 divide-y divide-zinc-100 overflow-y-auto">
-                  {completedMatches.map((m) => (
-                    <div
-                      key={m.matchId}
-                      className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 py-3"
-                    >
-                      <p className="truncate text-right text-sm font-semibold">
-                        {m.team1.map((p) => p.fullName).join(" / ")}
-                      </p>
-                      <span className="shrink-0 rounded-lg bg-brand-soft px-3 py-1 text-sm font-bold tabular-nums text-brand-dark">
-                        {m.team1Score ?? 0}-{m.team2Score ?? 0}
-                      </span>
-                      <p className="truncate text-sm font-semibold text-zinc-500">
-                        {m.team2.map((p) => p.fullName).join(" / ")}
-                      </p>
-                    </div>
-                  ))}
+                <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
+                  {completedMatches.map((m) => {
+                    const t1Score = m.team1Score ?? 0;
+                    const t2Score = m.team2Score ?? 0;
+                    const t1Won = t1Score > t2Score;
+                    const t2Won = t2Score > t1Score;
+                    return (
+                      <div
+                        key={m.matchId}
+                        className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 rounded-2xl bg-[#8ba668] px-4 py-3 ring-1 ring-black/10"
+                      >
+                        <p
+                          className={`truncate text-right text-sm drop-shadow ${
+                            t1Won ? "font-black text-white" : "font-medium text-white/60"
+                          }`}
+                        >
+                          {t1Won && "🏆 "}
+                          {m.team1.map((p) => p.fullName).join(" / ")}
+                        </p>
+
+                        {/* Same court-styled badge as the big live cards: blue sides,
+                            light-blue kitchen strip, thin net line down the middle. */}
+                        <div className="grid shrink-0 grid-cols-[auto_10px_auto] overflow-hidden rounded-full border-2 border-white shadow">
+                          <span className="bg-[#4a7a9c] px-3 py-1.5 text-sm font-black tabular-nums text-white">
+                            {t1Score}
+                          </span>
+                          <span className="relative bg-[#5ec2dd]">
+                            <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-zinc-900" />
+                          </span>
+                          <span className="bg-[#4a7a9c] px-3 py-1.5 text-sm font-black tabular-nums text-white">
+                            {t2Score}
+                          </span>
+                        </div>
+
+                        <p
+                          className={`truncate text-sm drop-shadow ${
+                            t2Won ? "font-black text-white" : "font-medium text-white/60"
+                          }`}
+                        >
+                          {m.team2.map((p) => p.fullName).join(" / ")}
+                          {t2Won && " 🏆"}
+                        </p>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </Panel>
           </div>
+
+          {!isLive && (
+            <div className="mt-6">
+              <Panel>
+                <h2 className="mb-4 text-sm font-semibold">All Players</h2>
+                {sessionPlayerStats.length === 0 ? (
+                  <p className="text-sm text-zinc-400">No players recorded for this session.</p>
+                ) : (
+                  <div className="max-h-96 overflow-y-auto">
+                    <div className="hidden grid-cols-[minmax(0,1fr)_5rem_4rem_4rem_4rem] gap-3 pb-3 text-[10px] font-bold uppercase tracking-wider text-zinc-400 sm:grid">
+                      <span>Player</span>
+                      <span className="text-right">Games</span>
+                      <span className="text-right">Wins</span>
+                      <span className="text-right">Losses</span>
+                      <span className="text-right">Win %</span>
+                    </div>
+                    <div className="divide-y divide-zinc-100">
+                      {sessionPlayerStats.map((p) => (
+                        <div
+                          key={p.playerId}
+                          className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-3 sm:grid-cols-[minmax(0,1fr)_5rem_4rem_4rem_4rem]"
+                        >
+                          <p className="truncate text-sm font-semibold">{p.fullName}</p>
+                          <span className="text-right text-sm font-bold tabular-nums sm:inline">{p.gamesPlayed}</span>
+                          <span className="hidden text-right text-sm font-bold tabular-nums text-brand-dark sm:inline">
+                            {p.wins}
+                          </span>
+                          <span className="hidden text-right text-sm font-medium tabular-nums text-zinc-500 sm:inline">
+                            {p.losses}
+                          </span>
+                          <span className="hidden text-right text-xs font-bold tabular-nums sm:inline">
+                            {p.winPercentage.toFixed(0)}%
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </Panel>
+            </div>
+          )}
         </>
       )}
 

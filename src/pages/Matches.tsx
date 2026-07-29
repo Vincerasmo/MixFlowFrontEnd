@@ -14,6 +14,7 @@ import {
   DialogClose,
 } from "@/components/ui/dialog";
 import { getActiveSession, getSessionById } from "@/services/sessions";
+import { getSessionLeaderboard } from "@/services/leaderboard";
 import {
   getActiveMatches,
   getCompletedMatches,
@@ -25,6 +26,7 @@ import {
 } from "@/services/matches";
 import type { SessionDto } from "@/services/sessions";
 import type { MatchDto, QueueEntryDto } from "@/services/matches";
+import type { LeaderboardPlayerDto } from "@/services/leaderboard";
 
 const CARD_WIDTH = 340;
 const GAP = 24;
@@ -49,6 +51,7 @@ export default function MatchesPage() {
   const [completedMatches, setCompletedMatches] = useState<MatchDto[]>([]);
   const [queue, setQueue] = useState<QueueEntryDto[]>([]);
   const [nextUpMatches, setNextUpMatches] = useState<MatchDto[]>([]);
+  const [sessionPlayerStats, setSessionPlayerStats] = useState<LeaderboardPlayerDto[]>([]);
   const [dataLoading, setDataLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -102,9 +105,14 @@ export default function MatchesPage() {
         setNextUpMatches(nextUp);
       } else {
         // Ended session: only the final results matter — skip the live-only calls
-        // (queue/next-up/active are meaningless once a session is over).
-        const completed = await getCompletedMatches(sessionId);
+        // (queue/next-up/active are meaningless once a session is over). Also pull
+        // per-session player stats for the "All Players" summary table.
+        const [completed, stats] = await Promise.all([
+          getCompletedMatches(sessionId),
+          getSessionLeaderboard(sessionId),
+        ]);
         setCompletedMatches(completed);
+        setSessionPlayerStats(stats);
         setActiveMatches([]);
         setQueue([]);
         setNextUpMatches([]);
@@ -364,27 +372,96 @@ export default function MatchesPage() {
                   {isLive ? "No completed matches yet this session." : "No matches were recorded in this session."}
                 </p>
               ) : (
-                <div className="max-h-96 divide-y divide-zinc-100 overflow-y-auto">
-                  {completedMatches.map((m) => (
-                    <div
-                      key={m.matchId}
-                      className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 py-3"
-                    >
-                      <p className="truncate text-right text-sm font-semibold">
-                        {m.team1.map((p) => p.fullName).join(" / ")}
-                      </p>
-                      <span className="shrink-0 rounded-lg bg-brand-soft px-3 py-1 text-sm font-bold tabular-nums text-brand-dark">
-                        {m.team1Score ?? 0}-{m.team2Score ?? 0}
-                      </span>
-                      <p className="truncate text-sm font-semibold text-zinc-500">
-                        {m.team2.map((p) => p.fullName).join(" / ")}
-                      </p>
-                    </div>
-                  ))}
+                <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
+                  {completedMatches.map((m) => {
+                    const t1Score = m.team1Score ?? 0;
+                    const t2Score = m.team2Score ?? 0;
+                    const t1Won = t1Score > t2Score;
+                    const t2Won = t2Score > t1Score;
+                    return (
+                      <div
+                        key={m.matchId}
+                        className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 rounded-2xl bg-[#8ba668] px-4 py-3 ring-1 ring-black/10"
+                      >
+                        <p
+                          className={`truncate text-right text-sm drop-shadow ${
+                            t1Won ? "font-black text-white" : "font-medium text-white/60"
+                          }`}
+                        >
+                          {t1Won && "🏆 "}
+                          {m.team1.map((p) => p.fullName).join(" / ")}
+                        </p>
+
+                        {/* Same court-styled badge as the big live cards: blue sides,
+                            light-blue kitchen strip, thin net line down the middle. */}
+                        <div className="grid shrink-0 grid-cols-[auto_10px_auto] overflow-hidden rounded-full border-2 border-white shadow">
+                          <span className="bg-[#4a7a9c] px-3 py-1.5 text-sm font-black tabular-nums text-white">
+                            {t1Score}
+                          </span>
+                          <span className="relative bg-[#5ec2dd]">
+                            <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-zinc-900" />
+                          </span>
+                          <span className="bg-[#4a7a9c] px-3 py-1.5 text-sm font-black tabular-nums text-white">
+                            {t2Score}
+                          </span>
+                        </div>
+
+                        <p
+                          className={`truncate text-sm drop-shadow ${
+                            t2Won ? "font-black text-white" : "font-medium text-white/60"
+                          }`}
+                        >
+                          {m.team2.map((p) => p.fullName).join(" / ")}
+                          {t2Won && " 🏆"}
+                        </p>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </Panel>
           </div>
+
+          {!isLive && (
+            <div className="mt-6">
+              <Panel>
+                <h2 className="mb-4 text-sm font-semibold">All Players</h2>
+                {sessionPlayerStats.length === 0 ? (
+                  <p className="text-sm text-zinc-400">No players recorded for this session.</p>
+                ) : (
+                  <div className="max-h-96 overflow-y-auto">
+                    <div className="hidden grid-cols-[minmax(0,1fr)_5rem_4rem_4rem_4rem] gap-3 pb-3 text-[10px] font-bold uppercase tracking-wider text-zinc-400 sm:grid">
+                      <span>Player</span>
+                      <span className="text-right">Games</span>
+                      <span className="text-right">Wins</span>
+                      <span className="text-right">Losses</span>
+                      <span className="text-right">Win %</span>
+                    </div>
+                    <div className="divide-y divide-zinc-100">
+                      {sessionPlayerStats.map((p) => (
+                        <div
+                          key={p.playerId}
+                          className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-3 sm:grid-cols-[minmax(0,1fr)_5rem_4rem_4rem_4rem]"
+                        >
+                          <p className="truncate text-sm font-semibold">{p.fullName}</p>
+                          <span className="text-right text-sm font-bold tabular-nums sm:inline">{p.gamesPlayed}</span>
+                          <span className="hidden text-right text-sm font-bold tabular-nums text-brand-dark sm:inline">
+                            {p.wins}
+                          </span>
+                          <span className="hidden text-right text-sm font-medium tabular-nums text-zinc-500 sm:inline">
+                            {p.losses}
+                          </span>
+                          <span className="hidden text-right text-xs font-bold tabular-nums sm:inline">
+                            {p.winPercentage.toFixed(0)}%
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </Panel>
+            </div>
+          )}
         </>
       )}
 

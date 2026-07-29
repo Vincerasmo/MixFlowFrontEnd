@@ -356,7 +356,7 @@ const formatDateLabel = (yyyyMmDd: string) => {
                         )}
                       </div>
                       <p className="mt-0.5 text-xs text-zinc-500">
-                        {s.startTime.slice(0, 5)}–{s.endTime.slice(0, 5)} • {s.numberOfCourts} courts • {s.totalMatchesPlayed} game
+                        {formatTimeLabel(s.startTime.slice(0, 5))}–{formatTimeLabel(s.endTime.slice(0, 5))} • {s.numberOfCourts} courts • {s.totalMatchesPlayed} game
                         {s.totalMatchesPlayed === 1 ? "" : "s"} played
                       </p>
                     </div>
@@ -364,9 +364,11 @@ const formatDateLabel = (yyyyMmDd: string) => {
 
                   {/* Desktop / wide screens: full button row */}
                   <div className="hidden shrink-0 items-center gap-3 sm:flex">
-                    <Button size="sm" variant="outline" onClick={() => openRoster(s)} className="rounded-full">
-                      <Users className="size-3.5" /> Manage Players
-                    </Button>
+                    {isLive && (
+                      <Button size="sm" variant="outline" onClick={() => openRoster(s)} className="rounded-full">
+                        <Users className="size-3.5" /> Manage Players
+                      </Button>
+                    )}
                     {isLive && (
                       <Button size="sm" variant="outline" asChild className="rounded-full">
                         <Link to={`/queue?sessionId=${s.sessionId}`}>
@@ -421,9 +423,11 @@ const formatDateLabel = (yyyyMmDd: string) => {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => openRoster(s)}>
-                          <Users className="size-3.5" /> Manage Players
-                        </DropdownMenuItem>
+                        {isLive && (
+                          <DropdownMenuItem onClick={() => openRoster(s)}>
+                            <Users className="size-3.5" /> Manage Players
+                          </DropdownMenuItem>
+                        )}
                         {isLive ? (
                           <DropdownMenuItem asChild>
                             <Link to={`/queue?sessionId=${s.sessionId}`}>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Loader2, Medal, History } from "lucide-react";
+import { Loader2, Medal, History, Trophy, Flame, Snowflake } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PickleballIcon } from "@/components/icons/pickleball-icons";
 import {
@@ -32,6 +32,25 @@ function formatTimeLabel(hhmm: string) {
 // everywhere a leaderboard shows up.
 const medalTone = (rank: number) =>
   rank === 1 ? "bg-ball" : rank === 2 ? "bg-zinc-300" : rank === 3 ? "bg-amber-600" : "bg-brand-soft text-brand-dark";
+
+// Same fire/ice treatment used on the Leaderboard and Matches pages.
+function StreakIndicator({ streak }: { streak: number }) {
+  if (streak === 0) {
+    return <span className="text-xs font-bold tabular-nums text-zinc-400">—</span>;
+  }
+  if (streak > 0) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-bold tabular-nums text-orange-600">
+        <Flame className="size-3.5 fill-orange-500 text-orange-500" /> {streak}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-xs font-bold tabular-nums text-sky-600">
+      <Snowflake className="size-3.5 fill-sky-400 text-sky-500" /> {Math.abs(streak)}
+    </span>
+  );
+}
 
 export default function WatchPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -116,7 +135,8 @@ export default function WatchPage() {
   const inMatchPlayers = activeMatches.flatMap((m) =>
     [...m.team1, ...m.team2].map((p) => ({ playerId: p.playerId, fullName: p.fullName, courtNumber: m.courtNumber })),
   );
-  const reservedNextUpPlayers = nextUpMatches.flatMap((m) => [...m.team1, ...m.team2]);
+  const nextUpCardPlayers = nextUpMatches[0] ? [...nextUpMatches[0].team1, ...nextUpMatches[0].team2] : [];
+  const onDeckCardPlayers = nextUpMatches[1] ? [...nextUpMatches[1].team1, ...nextUpMatches[1].team2] : [];
 
   return (
     <div className="min-h-screen bg-zinc-50 pb-16 font-sans text-zinc-900">
@@ -233,8 +253,8 @@ export default function WatchPage() {
           )}
         </section>
 
-        {/* Queue + In Match + Reserved Next Up, side by side */}
-        <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 sm:gap-6">
+        {/* Queue + In Match + Next Up + On Deck, side by side */}
+        <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 sm:gap-6">
           <section className="rounded-[20px] bg-white p-5 ring-1 ring-black/5">
             <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">Queue ({queue.length})</h2>
             {queue.length === 0 ? (
@@ -275,13 +295,30 @@ export default function WatchPage() {
 
           <section className="rounded-[20px] bg-white p-5 ring-1 ring-black/5">
             <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">
-              Reserved — Next Up ({reservedNextUpPlayers.length})
+              Next Up ({nextUpCardPlayers.length})
             </h2>
-            {reservedNextUpPlayers.length === 0 ? (
+            {nextUpCardPlayers.length === 0 ? (
               <p className="text-sm text-zinc-400">Nothing prepared yet.</p>
             ) : (
               <div className="max-h-96 divide-y divide-zinc-100 overflow-y-auto">
-                {reservedNextUpPlayers.map((p) => (
+                {nextUpCardPlayers.map((p) => (
+                  <div key={p.playerId} className="flex items-center gap-3 py-2.5">
+                    <p className="truncate text-sm font-semibold">{p.fullName}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-[20px] bg-white p-5 ring-1 ring-black/5">
+            <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">
+              On Deck ({onDeckCardPlayers.length})
+            </h2>
+            {onDeckCardPlayers.length === 0 ? (
+              <p className="text-sm text-zinc-400">Nothing prepared yet.</p>
+            ) : (
+              <div className="max-h-96 divide-y divide-zinc-100 overflow-y-auto">
+                {onDeckCardPlayers.map((p) => (
                   <div key={p.playerId} className="flex items-center gap-3 py-2.5">
                     <p className="truncate text-sm font-semibold">{p.fullName}</p>
                   </div>
@@ -314,9 +351,12 @@ export default function WatchPage() {
                     </div>
                     <p className="truncate text-sm font-semibold">{l.fullName}</p>
                   </div>
-                  <p className="shrink-0 text-xs font-bold tabular-nums text-zinc-500">
-                    {l.wins}-{l.losses} • {l.winPercentage.toFixed(0)}%
-                  </p>
+                  <div className="flex shrink-0 items-center gap-2 text-xs font-bold tabular-nums text-zinc-500">
+                    <span>
+                      {l.wins}-{l.losses}
+                    </span>
+                    <StreakIndicator streak={l.streak} />
+                  </div>
                 </div>
               ))}
             </div>
@@ -343,37 +383,40 @@ export default function WatchPage() {
                 return (
                   <div
                     key={m.matchId}
-                    className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 rounded-2xl bg-[#8ba668] px-4 py-3 ring-1 ring-black/10"
+                    className="rounded-2xl bg-[#8ba668] px-4 py-3 ring-1 ring-black/10"
                   >
-                    <p
-                      className={`truncate text-right text-sm drop-shadow ${
-                        t1Won ? "font-black text-white" : "font-medium text-white/60"
-                      }`}
-                    >
-                      {t1Won && "🏆 "}
-                      {m.team1.map((p) => p.fullName).join(" / ")}
-                    </p>
-
-                    <div className="grid shrink-0 grid-cols-[auto_10px_auto] overflow-hidden rounded-full border-2 border-white shadow">
-                      <span className="bg-[#4a7a9c] px-3 py-1.5 text-sm font-black tabular-nums text-white">
+                    {/* Numerator row — Team 1 */}
+                    <div className={`flex items-center gap-3 ${t1Won ? "" : "opacity-60"}`}>
+                      <span className="grid w-12 shrink-0 place-items-center rounded-lg bg-[#4a7a9c] py-1 text-lg font-black tabular-nums text-white shadow">
                         {t1Score}
                       </span>
-                      <span className="relative bg-[#5ec2dd]">
-                        <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-zinc-900" />
-                      </span>
-                      <span className="bg-[#4a7a9c] px-3 py-1.5 text-sm font-black tabular-nums text-white">
-                        {t2Score}
-                      </span>
+                      <p
+                        className={`min-w-0 flex-1 truncate text-sm drop-shadow ${
+                          t1Won ? "font-black text-white" : "font-medium text-white/70"
+                        }`}
+                      >
+                        {m.team1.map((p) => p.fullName).join(" / ")}
+                      </p>
+                      {t1Won && <Trophy className="size-4 shrink-0 fill-yellow-300 text-yellow-300" />}
                     </div>
 
-                    <p
-                      className={`truncate text-sm drop-shadow ${
-                        t2Won ? "font-black text-white" : "font-medium text-white/60"
-                      }`}
-                    >
-                      {m.team2.map((p) => p.fullName).join(" / ")}
-                      {t2Won && " 🏆"}
-                    </p>
+                    {/* The fraction bar */}
+                    <div className="my-1.5 ml-[60px] h-px bg-white/40" />
+
+                    {/* Denominator row — Team 2 */}
+                    <div className={`flex items-center gap-3 ${t2Won ? "" : "opacity-60"}`}>
+                      <span className="grid w-12 shrink-0 place-items-center rounded-lg bg-[#4a7a9c] py-1 text-lg font-black tabular-nums text-white shadow">
+                        {t2Score}
+                      </span>
+                      <p
+                        className={`min-w-0 flex-1 truncate text-sm drop-shadow ${
+                          t2Won ? "font-black text-white" : "font-medium text-white/70"
+                        }`}
+                      >
+                        {m.team2.map((p) => p.fullName).join(" / ")}
+                      </p>
+                      {t2Won && <Trophy className="size-4 shrink-0 fill-yellow-300 text-yellow-300" />}
+                    </div>
                   </div>
                 );
               })}

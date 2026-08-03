@@ -10,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { getMySessions, getSessionPlayers, lockPair, unlockPair } from "@/services/sessions";
 import {
@@ -41,7 +42,14 @@ export default function QueuePage() {
 
   const [pendingPlayerId, setPendingPlayerId] = useState<number | null>(null);
   const [autoMixing, setAutoMixing] = useState(false);
-  const [lockingPlayerId, setLockingPlayerId] = useState<number | null>(null);
+
+  // Pair-picker dialog: tap up to two players to highlight/select them (from any of
+  // the 4 categories), then tap the confirm button to actually lock them together.
+  // Triggered by one button next to the Queue panel, instead of a lock icon on every
+  // individual player row.
+  const [pairDialogOpen, setPairDialogOpen] = useState(false);
+  const [selectedPairIds, setSelectedPairIds] = useState<number[]>([]);
+  const [pairBlockedMessage, setPairBlockedMessage] = useState<string | null>(null);
 
   // Editing a "Next Up" match
   const [editingMatch, setEditingMatch] = useState<MatchDto | null>(null);
@@ -128,11 +136,75 @@ export default function QueuePage() {
     [sessionPlayers, nextUpPlayerIds]
   );
 
+  // Split out of reservedNextUpPlayers specifically for the two display cards below —
+  // "Next Up" is nextUpMatches[0] (fills the very next open court), "On Deck" is
+  // nextUpMatches[1] (fills the court after that). reservedNextUpPlayers itself stays
+  // as the combined set since the lock-pairing selector below still wants both together.
+  const nextUpCardPlayers = useMemo(() => {
+    const ids = new Set<number>();
+    const m = nextUpMatches[0];
+    if (m) {
+      m.team1.forEach((p) => ids.add(p.playerId));
+      m.team2.forEach((p) => ids.add(p.playerId));
+    }
+    return sessionPlayers.filter((sp) => ids.has(sp.playerId));
+  }, [nextUpMatches, sessionPlayers]);
+
+  const onDeckCardPlayers = useMemo(() => {
+    const ids = new Set<number>();
+    const m = nextUpMatches[1];
+    if (m) {
+      m.team1.forEach((p) => ids.add(p.playerId));
+      m.team2.forEach((p) => ids.add(p.playerId));
+    }
+    return sessionPlayers.filter((sp) => ids.has(sp.playerId));
+  }, [nextUpMatches, sessionPlayers]);
+
   const lockedPartnerByPlayerId = useMemo(() => {
     const map = new Map<number, string>();
     sessionPlayers.forEach((sp) => {
       if (sp.lockedPartnerName) map.set(sp.playerId, sp.lockedPartnerName);
     });
+    return map;
+  }, [sessionPlayers]);
+
+  // Every non-benched player, sorted into exactly one of 4 buckets: whichever they're
+  // already locked to someone goes to "alreadyPaired" regardless of where they
+  // currently are; otherwise they land in whichever of the other 3 lists they're
+  // actually in right now.
+  const pairCategories = useMemo(() => {
+    const bucketOf = new Map<number, "inMatch" | "nextUp" | "queue">();
+    inMatchPlayers.forEach((sp) => bucketOf.set(sp.playerId, "inMatch"));
+    reservedNextUpPlayers.forEach((sp) => bucketOf.set(sp.playerId, "nextUp"));
+    queue.forEach((q) => {
+      if (!bucketOf.has(q.playerId)) bucketOf.set(q.playerId, "queue");
+    });
+
+    const result: {
+      inMatch: { playerId: number; fullName: string }[];
+      nextUp: { playerId: number; fullName: string }[];
+      queue: { playerId: number; fullName: string }[];
+      alreadyPaired: { playerId: number; fullName: string; partnerName: string }[];
+    } = { inMatch: [], nextUp: [], queue: [], alreadyPaired: [] };
+
+    sessionPlayers.forEach((sp) => {
+      if (sp.status === "Benched") return;
+      const bucket = bucketOf.get(sp.playerId);
+      if (!bucket) return;
+
+      if (sp.lockedPartnerName) {
+        result.alreadyPaired.push({ playerId: sp.playerId, fullName: sp.fullName, partnerName: sp.lockedPartnerName });
+      } else {
+        result[bucket].push({ playerId: sp.playerId, fullName: sp.fullName });
+      }
+    });
+
+    return result;
+  }, [sessionPlayers, inMatchPlayers, reservedNextUpPlayers, queue]);
+
+  const nameByPlayerId = useMemo(() => {
+    const map = new Map<number, string>();
+    sessionPlayers.forEach((sp) => map.set(sp.playerId, sp.fullName));
     return map;
   }, [sessionPlayers]);
 
@@ -179,17 +251,46 @@ export default function QueuePage() {
     }
   };
 
-  const handleLockClick = (playerId: number) => {
-    setLockingPlayerId((current) => (current === playerId ? null : playerId));
+  const openPairDialog = () => {
+    setPairDialogOpen(true);
+    setSelectedPairIds([]);
+    setPairBlockedMessage(null);
+    setError(null);
   };
 
-  const handlePairWith = async (partnerId: number) => {
-    if (!selectedSessionId || lockingPlayerId == null) return;
-    setPendingPlayerId(partnerId);
+  const closePairDialog = () => {
+    setPairDialogOpen(false);
+    setSelectedPairIds([]);
+    setPairBlockedMessage(null);
+  };
+
+  // Tapping a player toggles their selection. With 2 already selected, tapping a third
+  // (unselected) player swaps out whichever of the two was picked first — so you can
+  // just keep tapping to change your mind instead of having to deselect explicitly.
+  const handleTogglePairSelection = (playerId: number) => {
+    setPairBlockedMessage(null);
+    setSelectedPairIds((current) => {
+      if (current.includes(playerId)) return current.filter((id) => id !== playerId);
+      if (current.length >= 2) return [current[1], playerId];
+      return [...current, playerId];
+    });
+  };
+
+  // Clicking someone in the "Already Paired" bucket never selects them — they can't be
+  // paired again without being unpaired first, so this just explains why instead of
+  // silently doing nothing.
+  const handleClickAlreadyPaired = (fullName: string, partnerName: string) => {
+    setPairBlockedMessage(`${fullName} is already paired with ${partnerName}. Unpair them first if you want to change their partner.`);
+  };
+
+  const handleConfirmPair = async () => {
+    if (!selectedSessionId || selectedPairIds.length !== 2) return;
+    const [firstId, secondId] = selectedPairIds;
+    setPendingPlayerId(secondId);
     setError(null);
     try {
-      await lockPair(selectedSessionId, lockingPlayerId, partnerId);
-      setLockingPlayerId(null);
+      await lockPair(selectedSessionId, firstId, secondId);
+      closePairDialog();
       await loadSessionData(selectedSessionId, { silent: true });
     } catch {
       setError("Couldn't lock these two players. Make sure neither is benched or already paired.");
@@ -210,6 +311,85 @@ export default function QueuePage() {
     } finally {
       setPendingPlayerId(null);
     }
+  };
+
+  // Still shown per-row — unpairing is a simple single-player action, so there's no
+  // need to send it through the pair-picker dialog. Only renders for players who are
+  // already locked; pairing itself now only happens through the dialog.
+  const renderUnlockControl = (playerId: number) => {
+    if (!lockedPartnerByPlayerId.has(playerId)) return null;
+
+    return (
+      <button
+        onClick={() => handleUnlock(playerId)}
+        disabled={pendingPlayerId === playerId}
+        className="grid size-8 shrink-0 place-items-center rounded-full text-zinc-400 hover:bg-amber-50 hover:text-amber-600 disabled:opacity-50"
+        title="Unlock pair"
+      >
+        <Unlock className="size-3.5" />
+      </button>
+    );
+  };
+
+  const IN_MATCH_PAIR_NOTE =
+    "Pairing with someone who's mid-match takes effect starting their next match — it won't change the match they're currently playing.";
+
+  const renderPairCategory = (
+    title: string,
+    items: { playerId: number; fullName: string }[],
+    selectedIds: number[],
+    onToggle: (playerId: number) => void,
+    note?: string
+  ) => {
+    if (items.length === 0) return null;
+    return (
+      <div>
+        <p className="mb-1.5 text-xs font-bold uppercase tracking-wider text-zinc-400">
+          {title} ({items.length})
+        </p>
+        {note && <p className="mb-1.5 text-xs text-zinc-500">{note}</p>}
+        <div className="flex max-h-40 flex-col gap-1 overflow-y-auto pr-1">
+          {items.map((p) => {
+            const selected = selectedIds.includes(p.playerId);
+            return (
+              <button
+                key={p.playerId}
+                disabled={pendingPlayerId === p.playerId}
+                onClick={() => onToggle(p.playerId)}
+                className={`w-full shrink-0 truncate rounded-xl px-3 py-2 text-left text-sm font-medium disabled:opacity-50 ${
+                  selected ? "bg-brand text-zinc-900" : "hover:bg-brand-soft"
+                }`}
+              >
+                {p.fullName}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const renderAlreadyPairedCategory = (items: { playerId: number; fullName: string; partnerName: string }[]) => {
+    if (items.length === 0) return null;
+    return (
+      <div>
+        <p className="mb-1.5 text-xs font-bold uppercase tracking-wider text-zinc-400">
+          Already Paired ({items.length})
+        </p>
+        <div className="flex max-h-40 flex-col gap-1 overflow-y-auto pr-1">
+          {items.map((p) => (
+            <button
+              key={p.playerId}
+              onClick={() => handleClickAlreadyPaired(p.fullName, p.partnerName)}
+              className="flex w-full shrink-0 items-center justify-between gap-2 truncate rounded-xl bg-zinc-50 px-3 py-2 text-left text-sm font-medium text-zinc-400"
+            >
+              <span className="truncate">{p.fullName}</span>
+              <span className="shrink-0 text-xs font-normal">🔒 {p.partnerName}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
   };
 
   const openEdit = (match: MatchDto) => {
@@ -432,23 +612,28 @@ export default function QueuePage() {
           </Panel>
 
           <Panel className="col-span-12 lg:col-span-8">
-            <h2 className="mb-4 text-sm font-semibold">Queue</h2>
+            <div className="mb-4 flex items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold">Queue</h2>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={openPairDialog}
+                className="shrink-0 gap-1.5 rounded-full"
+              >
+                <Lock className="size-3.5" /> Pair Players
+              </Button>
+            </div>
             {queue.length === 0 ? (
               <p className="text-sm text-zinc-400">No one's in the queue yet.</p>
             ) : (
               <div className="max-h-96 divide-y divide-zinc-100 overflow-y-auto">
                 {queue.map((q, i) => {
-                  const isPicking = lockingPlayerId !== null;
-                  const isPickingThis = lockingPlayerId === q.playerId;
                   const alreadyLocked = lockedPartnerByPlayerId.has(q.playerId);
-                  const isPickTarget = isPicking && !isPickingThis && !alreadyLocked;
 
                   return (
                     <div
                       key={q.queueId}
-                      className={`grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-2 py-3 ${
-                        isPickingThis ? "rounded-lg bg-brand-soft px-2" : ""
-                      }`}
+                      className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-2 py-3"
                     >
                       <div className="grid size-8 shrink-0 place-items-center rounded-full bg-brand-soft text-xs font-bold text-brand-dark">
                         {q.position ?? i + 1}
@@ -461,37 +646,7 @@ export default function QueuePage() {
                         </p>
                       </div>
 
-                      {alreadyLocked ? (
-                        <button
-                          onClick={() => handleUnlock(q.playerId)}
-                          disabled={pendingPlayerId === q.playerId}
-                          className="grid size-8 shrink-0 place-items-center rounded-full text-zinc-400 hover:bg-amber-50 hover:text-amber-600 disabled:opacity-50"
-                          title="Unlock pair"
-                        >
-                          <Unlock className="size-3.5" />
-                        </button>
-                      ) : isPickTarget ? (
-                        <Button
-                          size="sm"
-                          disabled={pendingPlayerId === q.playerId}
-                          onClick={() => handlePairWith(q.playerId)}
-                          className="h-8 shrink-0 rounded-full px-2.5 text-xs"
-                        >
-                          Pair
-                        </Button>
-                      ) : (
-                        <button
-                          onClick={() => handleLockClick(q.playerId)}
-                          className={`grid size-8 shrink-0 place-items-center rounded-full ${
-                            isPickingThis
-                              ? "bg-brand text-zinc-900"
-                              : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
-                          }`}
-                          title="Lock with a partner"
-                        >
-                          <Lock className="size-3.5" />
-                        </button>
-                      )}
+                      {renderUnlockControl(q.playerId)}
 
                       <Button
                         size="sm"
@@ -507,14 +662,9 @@ export default function QueuePage() {
                 })}
               </div>
             )}
-            {lockingPlayerId !== null && (
-              <p className="mt-2 text-xs text-zinc-400">
-                Tap "Pair" on another queued player, or the lock icon again to cancel.
-              </p>
-            )}
           </Panel>
 
-          <Panel className="col-span-12 lg:col-span-4">
+          <Panel className="col-span-12 lg:col-span-3">
             <h2 className="mb-4 text-sm font-semibold">On the bench</h2>
             {benched.length === 0 ? (
               <p className="text-sm text-zinc-400">No one's benched.</p>
@@ -544,27 +694,68 @@ export default function QueuePage() {
           </Panel>
 
           {inMatchPlayers.length > 0 && (
-            <Panel className="col-span-12 lg:col-span-4">
+            <Panel className="col-span-12 lg:col-span-3">
               <h2 className="mb-4 text-sm font-semibold">In a Match ({inMatchPlayers.length})</h2>
               <div className="flex max-h-72 flex-col gap-2 overflow-y-auto">
                 {inMatchPlayers.map((sp) => (
-                  <div key={sp.playerId} className="rounded-xl px-3 py-2 ring-1 ring-zinc-100">
-                    <p className="truncate text-sm font-medium">{sp.fullName}</p>
-                    <p className="text-xs text-zinc-400">{sp.skillCategory}</p>
+                  <div
+                    key={sp.playerId}
+                    className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-xl px-3 py-2 ring-1 ring-zinc-100"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{sp.fullName}</p>
+                      <p className="text-xs text-zinc-400">
+                        {sp.skillCategory}
+                        {lockedPartnerByPlayerId.has(sp.playerId) ? ` • 🔒 with ${lockedPartnerByPlayerId.get(sp.playerId)}` : ""}
+                      </p>
+                    </div>
+                    {renderUnlockControl(sp.playerId)}
                   </div>
                 ))}
               </div>
             </Panel>
           )}
 
-          {reservedNextUpPlayers.length > 0 && (
-            <Panel className="col-span-12 lg:col-span-4">
-              <h2 className="mb-4 text-sm font-semibold">Reserved — Next Up ({reservedNextUpPlayers.length})</h2>
+          {nextUpCardPlayers.length > 0 && (
+            <Panel className="col-span-12 lg:col-span-3">
+              <h2 className="mb-4 text-sm font-semibold">Next Up ({nextUpCardPlayers.length})</h2>
               <div className="flex max-h-72 flex-col gap-2 overflow-y-auto">
-                {reservedNextUpPlayers.map((sp) => (
-                  <div key={sp.playerId} className="rounded-xl px-3 py-2 ring-1 ring-zinc-100">
-                    <p className="truncate text-sm font-medium">{sp.fullName}</p>
-                    <p className="text-xs text-zinc-400">{sp.skillCategory}</p>
+                {nextUpCardPlayers.map((sp) => (
+                  <div
+                    key={sp.playerId}
+                    className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-xl px-3 py-2 ring-1 ring-zinc-100"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{sp.fullName}</p>
+                      <p className="text-xs text-zinc-400">
+                        {sp.skillCategory}
+                        {lockedPartnerByPlayerId.has(sp.playerId) ? ` • 🔒 with ${lockedPartnerByPlayerId.get(sp.playerId)}` : ""}
+                      </p>
+                    </div>
+                    {renderUnlockControl(sp.playerId)}
+                  </div>
+                ))}
+              </div>
+            </Panel>
+          )}
+
+          {onDeckCardPlayers.length > 0 && (
+            <Panel className="col-span-12 lg:col-span-3">
+              <h2 className="mb-4 text-sm font-semibold">On Deck ({onDeckCardPlayers.length})</h2>
+              <div className="flex max-h-72 flex-col gap-2 overflow-y-auto">
+                {onDeckCardPlayers.map((sp) => (
+                  <div
+                    key={sp.playerId}
+                    className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-xl px-3 py-2 ring-1 ring-zinc-100"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{sp.fullName}</p>
+                      <p className="text-xs text-zinc-400">
+                        {sp.skillCategory}
+                        {lockedPartnerByPlayerId.has(sp.playerId) ? ` • 🔒 with ${lockedPartnerByPlayerId.get(sp.playerId)}` : ""}
+                      </p>
+                    </div>
+                    {renderUnlockControl(sp.playerId)}
                   </div>
                 ))}
               </div>
@@ -659,6 +850,50 @@ export default function QueuePage() {
               {swapError && <p className="mt-3 text-sm text-red-500">{swapError}</p>}
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={pairDialogOpen} onOpenChange={(o) => !o && closePairDialog()}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Pair two players</DialogTitle>
+            <DialogDescription>
+              Tap two players below to select them, then confirm to lock them together as a fixed doubles pair for
+              the rest of this session.
+            </DialogDescription>
+          </DialogHeader>
+
+          {pairBlockedMessage && (
+            <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">{pairBlockedMessage}</p>
+          )}
+
+          <div className="space-y-4">
+            {renderPairCategory("In Match", pairCategories.inMatch, selectedPairIds, handleTogglePairSelection, IN_MATCH_PAIR_NOTE)}
+            {renderPairCategory("Next Up", pairCategories.nextUp, selectedPairIds, handleTogglePairSelection)}
+            {renderPairCategory("Queue", pairCategories.queue, selectedPairIds, handleTogglePairSelection)}
+            {renderAlreadyPairedCategory(pairCategories.alreadyPaired)}
+
+            {pairCategories.inMatch.length === 0 &&
+              pairCategories.nextUp.length === 0 &&
+              pairCategories.queue.length === 0 &&
+              pairCategories.alreadyPaired.length === 0 && (
+                <p className="py-4 text-center text-sm text-zinc-400">No players available right now.</p>
+              )}
+          </div>
+
+          {error && <p className="mt-3 text-sm text-red-500">{error}</p>}
+
+          <DialogFooter>
+            <Button
+              disabled={selectedPairIds.length !== 2 || pendingPlayerId !== null}
+              onClick={handleConfirmPair}
+              className="w-full rounded-full sm:w-auto"
+            >
+              {selectedPairIds.length === 2
+                ? `Pair ${nameByPlayerId.get(selectedPairIds[0])} & ${nameByPlayerId.get(selectedPairIds[1])}`
+                : `Select ${2 - selectedPairIds.length} more player${2 - selectedPairIds.length === 1 ? "" : "s"}`}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </AppShell>

@@ -7,6 +7,7 @@ export interface LeaderboardPlayerDto {
   wins: number;
   losses: number;
   rank: number;
+  streak: number;
 }
 
 export interface LeaderboardDto {

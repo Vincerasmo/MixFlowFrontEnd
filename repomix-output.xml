@@ -4799,386 +4799,6 @@ export default function NotFoundPage() {
 }
 </file>
 
-<file path="src/pages/Watch.tsx">
-import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
-import { Loader2, Medal, History } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { PickleballIcon } from "@/components/icons/pickleball-icons";
-import {
-  getPublicSession,
-  getPublicQueue,
-  getPublicActiveMatches,
-  getPublicNextUpMatches,
-  getPublicCompletedMatches,
-  getPublicLeaderboard,
-} from "@/services/public";
-import type { PublicSessionDto } from "@/services/public";
-import type { MatchDto, QueueEntryDto } from "@/services/matches";
-import type { LeaderboardPlayerDto } from "@/services/leaderboard";
-
-const POLL_INTERVAL_MS = 7000;
-
-function initials(name: string) {
-  return name.split(" ").map((n) => n[0]).join("");
-}
-
-// Identical to the dashboard's Top Performers panel, so rank styling is consistent
-// everywhere a leaderboard shows up.
-const medalTone = (rank: number) =>
-  rank === 1 ? "bg-ball" : rank === 2 ? "bg-zinc-300" : rank === 3 ? "bg-amber-600" : "bg-brand-soft text-brand-dark";
-
-export default function WatchPage() {
-  const { sessionId } = useParams<{ sessionId: string }>();
-  const id = Number(sessionId);
-
-  const [session, setSession] = useState<PublicSessionDto | null>(null);
-  const [queue, setQueue] = useState<QueueEntryDto[]>([]);
-  const [activeMatches, setActiveMatches] = useState<MatchDto[]>([]);
-  const [nextUpMatches, setNextUpMatches] = useState<MatchDto[]>([]);
-  const [completedMatches, setCompletedMatches] = useState<MatchDto[]>([]);
-  const [leaders, setLeaders] = useState<LeaderboardPlayerDto[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!id || Number.isNaN(id)) {
-      setError("Invalid session link.");
-      setLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-
-    const load = async (opts?: { silent?: boolean }) => {
-      if (!opts?.silent) setLoading(true);
-      try {
-        const [s, q, active, nextUp, completed, board] = await Promise.all([
-          getPublicSession(id),
-          getPublicQueue(id),
-          getPublicActiveMatches(id),
-          getPublicNextUpMatches(id),
-          getPublicCompletedMatches(id),
-          getPublicLeaderboard(id),
-        ]);
-        if (cancelled) return;
-        setSession(s);
-        setQueue(q);
-        setActiveMatches(active);
-        setNextUpMatches(nextUp);
-        setCompletedMatches(completed);
-        setLeaders(board);
-        setError(null);
-      } catch {
-        if (!cancelled) setError("Couldn't load this session. The link may be invalid or the session may have ended.");
-      } finally {
-        if (!cancelled && !opts?.silent) setLoading(false);
-      }
-    };
-
-    void load();
-    const interval = setInterval(() => void load({ silent: true }), POLL_INTERVAL_MS);
-
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [id]);
-
-  if (loading) {
-    return (
-      <div className="grid min-h-screen place-items-center bg-zinc-50">
-        <div className="flex items-center gap-2 text-sm text-zinc-400">
-          <Loader2 className="size-4 animate-spin" /> Loading…
-        </div>
-      </div>
-    );
-  }
-
-  if (error || !session) {
-    return (
-      <div className="grid min-h-screen place-items-center bg-zinc-50 p-6 text-center">
-        <div>
-          <PickleballIcon className="mx-auto mb-4 size-12" />
-          <p className="text-sm font-medium text-zinc-600">{error ?? "Session not found."}</p>
-        </div>
-      </div>
-    );
-  }
-
-  const matchByCourt = new Map(activeMatches.map((m) => [m.courtNumber, m]));
-  const courts = Array.from({ length: session.numberOfCourts }, (_, i) => i + 1);
-  const inMatchPlayers = activeMatches.flatMap((m) =>
-    [...m.team1, ...m.team2].map((p) => ({ playerId: p.playerId, fullName: p.fullName, courtNumber: m.courtNumber })),
-  );
-  const reservedNextUpPlayers = nextUpMatches.flatMap((m) => [...m.team1, ...m.team2]);
-
-  return (
-    <div className="min-h-screen bg-zinc-50 pb-16 font-sans text-zinc-900">
-      <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/90 px-4 py-3 backdrop-blur-md sm:px-6">
-        <div className="mx-auto flex max-w-5xl items-center gap-3">
-          <PickleballIcon spin className="size-8" />
-          <div className="min-w-0">
-            <p className="truncate text-base font-bold">{session.sessionName}</p>
-            <p className="text-xs text-zinc-500">
-              {session.status === "Active" ? "Live now" : "Session ended"} • {session.numberOfCourts} courts
-            </p>
-          </div>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
-        {/* Courts */}
-        <section className="mb-8">
-          <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">On Court</h2>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {courts.map((courtNumber) => {
-              const match = matchByCourt.get(courtNumber);
-              return (
-                <div
-                  key={courtNumber}
-                  className="relative overflow-hidden rounded-[20px] bg-[#8ba668] p-4 text-white ring-1 ring-black/10"
-                >
-                  <div className="mb-3 flex items-center justify-between">
-                    <span className="rounded-full bg-white/90 px-2.5 py-1 text-xs font-black uppercase tracking-[0.15em] text-zinc-900">
-                      Court {courtNumber}
-                    </span>
-                    {match && (
-                      <span className="pulse-dot rounded-full bg-red-600 px-2.5 py-1 text-[10px] font-black uppercase text-white shadow">
-                        Live
-                      </span>
-                    )}
-                  </div>
-
-                  {match ? (
-                    <div className="grid grid-cols-[1fr_56px_1fr] overflow-hidden rounded-xl border-[4px] border-white">
-                      <div className="grid grid-rows-2 divide-y-[3px] divide-white bg-[#4a7a9c]">
-                        {match.team1.map((p) => (
-                          <div key={p.playerId} className="flex items-center justify-center p-2">
-                            <p className="truncate text-sm font-bold text-white">{p.fullName}</p>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="relative bg-[#5ec2dd]">
-                        <div className="absolute inset-y-0 left-1/2 w-[2px] -translate-x-1/2 bg-zinc-900" />
-                      </div>
-                      <div className="grid grid-rows-2 divide-y-[3px] divide-white bg-[#4a7a9c]">
-                        {match.team2.map((p) => (
-                          <div key={p.playerId} className="flex items-center justify-center p-2">
-                            <p className="truncate text-sm font-bold text-white">{p.fullName}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex h-24 items-center justify-center rounded-xl border-4 border-dashed border-white/50 text-sm font-bold text-white/80">
-                      Available
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* Next Up — same "Next Up" / "On Deck" labeling and explanatory subtitle as the
-            organizer's Queue page, so which prepared match fills the next open court is
-            unambiguous here too. */}
-        <section className="mb-8">
-          <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">Next Up</h2>
-          {nextUpMatches.length === 0 ? (
-            <p className="text-sm text-zinc-400">Nothing prepared yet.</p>
-          ) : (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {nextUpMatches.map((match, i) => (
-                <div
-                  key={match.matchId}
-                  className="relative overflow-hidden rounded-[20px] bg-[#8ba668] p-4 text-white ring-1 ring-black/10"
-                >
-                  <p className="mb-1 text-xs font-black uppercase tracking-[0.2em] text-white">
-                    {i === 0 ? "Next Up" : "On Deck"}
-                  </p>
-                  <p className="mb-3 text-[10px] font-semibold text-white/70">
-                    {i === 0 ? "Fills the very next court that opens up" : "Fills the court after that"}
-                  </p>
-                  <div className="grid grid-cols-[1fr_56px_1fr] overflow-hidden rounded-xl border-[4px] border-white">
-                    <div className="grid grid-rows-2 divide-y-[3px] divide-white bg-[#4a7a9c]">
-                      {match.team1.map((p) => (
-                        <div key={p.playerId} className="flex items-center justify-center p-2">
-                          <p className="truncate text-sm font-bold text-white">{p.fullName}</p>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="relative bg-[#5ec2dd]">
-                      <div className="absolute inset-y-0 left-1/2 w-[2px] -translate-x-1/2 bg-zinc-900" />
-                    </div>
-                    <div className="grid grid-rows-2 divide-y-[3px] divide-white bg-[#4a7a9c]">
-                      {match.team2.map((p) => (
-                        <div key={p.playerId} className="flex items-center justify-center p-2">
-                          <p className="truncate text-sm font-bold text-white">{p.fullName}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        {/* Queue + In Match + Reserved Next Up, side by side */}
-        <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 sm:gap-6">
-          <section className="rounded-[20px] bg-white p-5 ring-1 ring-black/5">
-            <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">Queue ({queue.length})</h2>
-            {queue.length === 0 ? (
-              <p className="text-sm text-zinc-400">No one's waiting right now.</p>
-            ) : (
-              <div className="max-h-96 divide-y divide-zinc-100 overflow-y-auto">
-                {queue.map((q, i) => (
-                  <div key={q.queueId} className="flex items-center gap-3 py-2.5">
-                    <span className="grid size-7 shrink-0 place-items-center rounded-full bg-brand-soft text-xs font-bold text-brand-dark">
-                      {q.position ?? i + 1}
-                    </span>
-                    <p className="truncate text-sm font-semibold">{q.fullName}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section className="rounded-[20px] bg-white p-5 ring-1 ring-black/5">
-            <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">
-              In Match — Players ({inMatchPlayers.length})
-            </h2>
-            {inMatchPlayers.length === 0 ? (
-              <p className="text-sm text-zinc-400">No one's playing right now.</p>
-            ) : (
-              <div className="divide-y divide-zinc-100">
-                {inMatchPlayers.map((p) => (
-                  <div key={p.playerId} className="flex items-center justify-between gap-3 py-2.5">
-                    <p className="truncate text-sm font-semibold">{p.fullName}</p>
-                    <span className="shrink-0 rounded-full bg-brand-soft px-2.5 py-0.5 text-[10px] font-bold uppercase text-brand-dark">
-                      Court {p.courtNumber}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section className="rounded-[20px] bg-white p-5 ring-1 ring-black/5">
-            <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">
-              Reserved — Next Up ({reservedNextUpPlayers.length})
-            </h2>
-            {reservedNextUpPlayers.length === 0 ? (
-              <p className="text-sm text-zinc-400">Nothing prepared yet.</p>
-            ) : (
-              <div className="divide-y divide-zinc-100">
-                {reservedNextUpPlayers.map((p) => (
-                  <div key={p.playerId} className="flex items-center gap-3 py-2.5">
-                    <p className="truncate text-sm font-semibold">{p.fullName}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-        </div>
-
-        {/* Leaderboard */}
-        <section className="mb-8 rounded-[20px] bg-white p-5 ring-1 ring-black/5">
-          <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">Leaderboard</h2>
-          {leaders.length === 0 ? (
-            <p className="text-sm text-zinc-400">No results yet.</p>
-          ) : (
-            <div className="max-h-96 divide-y divide-zinc-100 overflow-y-auto">
-              {leaders.slice(0, 10).map((l) => (
-                <div key={l.playerId} className="flex items-center justify-between py-2.5">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span
-                      className={cn(
-                        "grid size-7 shrink-0 place-items-center rounded-full text-xs font-bold text-zinc-900",
-                        medalTone(l.rank),
-                      )}
-                    >
-                      {l.rank <= 3 ? <Medal className="size-3.5" /> : l.rank}
-                    </span>
-                    <div className="grid size-8 shrink-0 place-items-center rounded-full bg-linear-to-br from-ball to-brand text-[10px] font-bold text-zinc-900">
-                      {initials(l.fullName)}
-                    </div>
-                    <p className="truncate text-sm font-semibold">{l.fullName}</p>
-                  </div>
-                  <p className="shrink-0 text-xs font-bold tabular-nums text-zinc-500">
-                    {l.wins}-{l.losses} • {l.winPercentage.toFixed(0)}%
-                  </p>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        {/* Recent results — same court-styled card treatment as the Matches page */}
-        <section className="rounded-[20px] bg-white p-5 ring-1 ring-black/5">
-          <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">
-            <History className="mr-1.5 inline size-4 text-zinc-400" />
-            {session.status === "Active" ? "Recent Results" : "Final Results"}
-          </h2>
-          {completedMatches.length === 0 ? (
-            <p className="text-sm text-zinc-400">
-              {session.status === "Active" ? "No matches finished yet." : "No matches were recorded in this session."}
-            </p>
-          ) : (
-            <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
-              {completedMatches.slice(0, 10).map((m) => {
-                const t1Score = m.team1Score ?? 0;
-                const t2Score = m.team2Score ?? 0;
-                const t1Won = t1Score > t2Score;
-                const t2Won = t2Score > t1Score;
-                return (
-                  <div
-                    key={m.matchId}
-                    className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 rounded-2xl bg-[#8ba668] px-4 py-3 ring-1 ring-black/10"
-                  >
-                    <p
-                      className={`truncate text-right text-sm drop-shadow ${
-                        t1Won ? "font-black text-white" : "font-medium text-white/60"
-                      }`}
-                    >
-                      {t1Won && "🏆 "}
-                      {m.team1.map((p) => p.fullName).join(" / ")}
-                    </p>
-
-                    <div className="grid shrink-0 grid-cols-[auto_10px_auto] overflow-hidden rounded-full border-2 border-white shadow">
-                      <span className="bg-[#4a7a9c] px-3 py-1.5 text-sm font-black tabular-nums text-white">
-                        {t1Score}
-                      </span>
-                      <span className="relative bg-[#5ec2dd]">
-                        <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-zinc-900" />
-                      </span>
-                      <span className="bg-[#4a7a9c] px-3 py-1.5 text-sm font-black tabular-nums text-white">
-                        {t2Score}
-                      </span>
-                    </div>
-
-                    <p
-                      className={`truncate text-sm drop-shadow ${
-                        t2Won ? "font-black text-white" : "font-medium text-white/60"
-                      }`}
-                    >
-                      {m.team2.map((p) => p.fullName).join(" / ")}
-                      {t2Won && " 🏆"}
-                    </p>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
-      </main>
-    </div>
-  );
-}
-</file>
-
 <file path="src/services/auth/auth.types.ts">
 export interface OrganizerDto {
   organizerId: number;
@@ -5313,56 +4933,6 @@ export interface UpdatePlayerPayload {
 
 <file path="src/services/public/index.ts">
 export * from "./public.service.ts";
-</file>
-
-<file path="src/services/public/public.service.ts">
-import { apiClient } from "../api/client";
-import type { MatchDto, QueueEntryDto } from "../matches/matches.types";
-import type { LeaderboardPlayerDto } from "../leaderboard/leaderboard.types";
-
-// These hit new, unauthenticated endpoints on the backend (see PublicController) — no
-// token required, so this is safe to call from a public "watch" link with no login.
-// apiClient still attaches a token if one happens to be present (e.g. an organizer
-// opening their own watch link), but the backend won't require it here.
-
-export interface PublicSessionDto {
-  sessionId: number;
-  sessionName: string;
-  numberOfCourts: number;
-  status: string;
-}
-
-export async function getPublicSession(sessionId: number): Promise<PublicSessionDto> {
-  const { data } = await apiClient.get<PublicSessionDto>(`/public/sessions/${sessionId}`);
-  return data;
-}
-
-export async function getPublicQueue(sessionId: number): Promise<QueueEntryDto[]> {
-  const { data } = await apiClient.get<QueueEntryDto[]>(`/public/sessions/${sessionId}/queue`);
-  return data;
-}
-
-export async function getPublicActiveMatches(sessionId: number): Promise<MatchDto[]> {
-  const { data } = await apiClient.get<MatchDto[]>(`/public/sessions/${sessionId}/matches/active`);
-  return data;
-}
-
-// Same "next up" data the organizer's Queue page shows — the prepared, not-yet-started
-// matches (target: 2), read-only here.
-export async function getPublicNextUpMatches(sessionId: number): Promise<MatchDto[]> {
-  const { data } = await apiClient.get<MatchDto[]>(`/public/sessions/${sessionId}/matches/next-up`);
-  return data;
-}
-
-export async function getPublicCompletedMatches(sessionId: number): Promise<MatchDto[]> {
-  const { data } = await apiClient.get<MatchDto[]>(`/public/sessions/${sessionId}/matches/completed`);
-  return data;
-}
-
-export async function getPublicLeaderboard(sessionId: number): Promise<LeaderboardPlayerDto[]> {
-  const { data } = await apiClient.get<LeaderboardPlayerDto[]>(`/public/sessions/${sessionId}/leaderboard`);
-  return data;
-}
 </file>
 
 <file path="src/services/sessions/index.ts">
@@ -6009,6 +5579,438 @@ export {
 };
 </file>
 
+<file path="src/pages/Watch.tsx">
+import { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
+import { Loader2, Medal, History, Trophy, Flame, Snowflake } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { PickleballIcon } from "@/components/icons/pickleball-icons";
+import {
+  getPublicSession,
+  getPublicQueue,
+  getPublicActiveMatches,
+  getPublicNextUpMatches,
+  getPublicCompletedMatches,
+  getPublicLeaderboard,
+} from "@/services/public";
+import type { PublicSessionDto } from "@/services/public";
+import type { MatchDto, QueueEntryDto } from "@/services/matches";
+import type { LeaderboardPlayerDto } from "@/services/leaderboard";
+
+const POLL_INTERVAL_MS = 7000;
+
+function initials(name: string) {
+  return name.split(" ").map((n) => n[0]).join("");
+}
+
+function formatTimeLabel(hhmm: string) {
+  const [h, m] = hhmm.split(":").map(Number);
+  const period = h >= 12 ? "PM" : "AM";
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}:${String(m).padStart(2, "0")} ${period}`;
+}
+
+// Identical to the dashboard's Top Performers panel, so rank styling is consistent
+// everywhere a leaderboard shows up.
+const medalTone = (rank: number) =>
+  rank === 1 ? "bg-ball" : rank === 2 ? "bg-zinc-300" : rank === 3 ? "bg-amber-600" : "bg-brand-soft text-brand-dark";
+
+// Same fire/ice treatment used on the Leaderboard and Matches pages.
+function StreakIndicator({ streak }: { streak: number }) {
+  if (streak === 0) {
+    return <span className="text-xs font-bold tabular-nums text-zinc-400">—</span>;
+  }
+  if (streak > 0) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-bold tabular-nums text-orange-600">
+        <Flame className="size-3.5 fill-orange-500 text-orange-500" /> {streak}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-xs font-bold tabular-nums text-sky-600">
+      <Snowflake className="size-3.5 fill-sky-400 text-sky-500" /> {Math.abs(streak)}
+    </span>
+  );
+}
+
+export default function WatchPage() {
+  const { sessionId } = useParams<{ sessionId: string }>();
+  const id = Number(sessionId);
+
+  const [session, setSession] = useState<PublicSessionDto | null>(null);
+  const [queue, setQueue] = useState<QueueEntryDto[]>([]);
+  const [activeMatches, setActiveMatches] = useState<MatchDto[]>([]);
+  const [nextUpMatches, setNextUpMatches] = useState<MatchDto[]>([]);
+  const [completedMatches, setCompletedMatches] = useState<MatchDto[]>([]);
+  const [leaders, setLeaders] = useState<LeaderboardPlayerDto[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!id || Number.isNaN(id)) {
+      setError("Invalid session link.");
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const load = async (opts?: { silent?: boolean }) => {
+      if (!opts?.silent) setLoading(true);
+      try {
+        const [s, q, active, nextUp, completed, board] = await Promise.all([
+          getPublicSession(id),
+          getPublicQueue(id),
+          getPublicActiveMatches(id),
+          getPublicNextUpMatches(id),
+          getPublicCompletedMatches(id),
+          getPublicLeaderboard(id),
+        ]);
+        if (cancelled) return;
+        setSession(s);
+        setQueue(q);
+        setActiveMatches(active);
+        setNextUpMatches(nextUp);
+        setCompletedMatches(completed);
+        setLeaders(board);
+        setError(null);
+      } catch {
+        if (!cancelled) setError("Couldn't load this session. The link may be invalid or the session may have ended.");
+      } finally {
+        if (!cancelled && !opts?.silent) setLoading(false);
+      }
+    };
+
+    void load();
+    const interval = setInterval(() => void load({ silent: true }), POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [id]);
+
+  if (loading) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-zinc-50">
+        <div className="flex items-center gap-2 text-sm text-zinc-400">
+          <Loader2 className="size-4 animate-spin" /> Loading…
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !session) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-zinc-50 p-6 text-center">
+        <div>
+          <PickleballIcon className="mx-auto mb-4 size-12" />
+          <p className="text-sm font-medium text-zinc-600">{error ?? "Session not found."}</p>
+        </div>
+      </div>
+    );
+  }
+
+  const matchByCourt = new Map(activeMatches.map((m) => [m.courtNumber, m]));
+  const courts = Array.from({ length: session.numberOfCourts }, (_, i) => i + 1);
+  const inMatchPlayers = activeMatches.flatMap((m) =>
+    [...m.team1, ...m.team2].map((p) => ({ playerId: p.playerId, fullName: p.fullName, courtNumber: m.courtNumber })),
+  );
+  const nextUpCardPlayers = nextUpMatches[0] ? [...nextUpMatches[0].team1, ...nextUpMatches[0].team2] : [];
+  const onDeckCardPlayers = nextUpMatches[1] ? [...nextUpMatches[1].team1, ...nextUpMatches[1].team2] : [];
+
+  return (
+    <div className="min-h-screen bg-zinc-50 pb-16 font-sans text-zinc-900">
+      <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/90 px-4 py-3 backdrop-blur-md sm:px-6">
+        <div className="mx-auto flex max-w-5xl items-center gap-3">
+          <PickleballIcon spin className="size-8" />
+          <div className="min-w-0">
+            <p className="truncate text-base font-bold">{session.sessionName}</p>
+            <p className="text-xs text-zinc-500">
+              {session.status === "Active" ? "Live now" : "Session ended"} •{" "}
+              {formatTimeLabel(session.startTime.slice(0, 5))}–{formatTimeLabel(session.endTime.slice(0, 5))} •{" "}
+              {session.numberOfCourts} courts
+            </p>
+          </div>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
+        {/* Courts */}
+        <section className="mb-8">
+          <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">On Court</h2>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {courts.map((courtNumber) => {
+              const match = matchByCourt.get(courtNumber);
+              return (
+                <div
+                  key={courtNumber}
+                  className="relative overflow-hidden rounded-[20px] bg-[#8ba668] p-4 text-white ring-1 ring-black/10"
+                >
+                  <div className="mb-3 flex items-center justify-between">
+                    <span className="rounded-full bg-white/90 px-2.5 py-1 text-xs font-black uppercase tracking-[0.15em] text-zinc-900">
+                      Court {courtNumber}
+                    </span>
+                    {match && (
+                      <span className="pulse-dot rounded-full bg-red-600 px-2.5 py-1 text-[10px] font-black uppercase text-white shadow">
+                        Live
+                      </span>
+                    )}
+                  </div>
+
+                  {match ? (
+                    <div className="grid grid-cols-[1fr_56px_1fr] overflow-hidden rounded-xl border-[4px] border-white">
+                      <div className="grid grid-rows-2 divide-y-[3px] divide-white bg-[#4a7a9c]">
+                        {match.team1.map((p) => (
+                          <div key={p.playerId} className="flex items-center justify-center p-2">
+                            <p className="truncate text-sm font-bold text-white">{p.fullName}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="relative bg-[#5ec2dd]">
+                        <div className="absolute inset-y-0 left-1/2 w-[2px] -translate-x-1/2 bg-zinc-900" />
+                      </div>
+                      <div className="grid grid-rows-2 divide-y-[3px] divide-white bg-[#4a7a9c]">
+                        {match.team2.map((p) => (
+                          <div key={p.playerId} className="flex items-center justify-center p-2">
+                            <p className="truncate text-sm font-bold text-white">{p.fullName}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex h-24 items-center justify-center rounded-xl border-4 border-dashed border-white/50 text-sm font-bold text-white/80">
+                      Available
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* Next Up — same "Next Up" / "On Deck" labeling and explanatory subtitle as the
+            organizer's Queue page, so which prepared match fills the next open court is
+            unambiguous here too. */}
+        <section className="mb-8">
+          <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">Next Up</h2>
+          {nextUpMatches.length === 0 ? (
+            <p className="text-sm text-zinc-400">Nothing prepared yet.</p>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {nextUpMatches.map((match, i) => (
+                <div
+                  key={match.matchId}
+                  className="relative overflow-hidden rounded-[20px] bg-[#8ba668] p-4 text-white ring-1 ring-black/10"
+                >
+                  <p className="mb-1 text-xs font-black uppercase tracking-[0.2em] text-white">
+                    {i === 0 ? "Next Up" : "On Deck"}
+                  </p>
+                  <p className="mb-3 text-[10px] font-semibold text-white/70">
+                    {i === 0 ? "Fills the very next court that opens up" : "Fills the court after that"}
+                  </p>
+                  <div className="grid grid-cols-[1fr_56px_1fr] overflow-hidden rounded-xl border-[4px] border-white">
+                    <div className="grid grid-rows-2 divide-y-[3px] divide-white bg-[#4a7a9c]">
+                      {match.team1.map((p) => (
+                        <div key={p.playerId} className="flex items-center justify-center p-2">
+                          <p className="truncate text-sm font-bold text-white">{p.fullName}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="relative bg-[#5ec2dd]">
+                      <div className="absolute inset-y-0 left-1/2 w-[2px] -translate-x-1/2 bg-zinc-900" />
+                    </div>
+                    <div className="grid grid-rows-2 divide-y-[3px] divide-white bg-[#4a7a9c]">
+                      {match.team2.map((p) => (
+                        <div key={p.playerId} className="flex items-center justify-center p-2">
+                          <p className="truncate text-sm font-bold text-white">{p.fullName}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Queue + In Match + Next Up + On Deck, side by side */}
+        <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 sm:gap-6">
+          <section className="rounded-[20px] bg-white p-5 ring-1 ring-black/5">
+            <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">Queue ({queue.length})</h2>
+            {queue.length === 0 ? (
+              <p className="text-sm text-zinc-400">No one's waiting right now.</p>
+            ) : (
+              <div className="max-h-96 divide-y divide-zinc-100 overflow-y-auto">
+                {queue.map((q, i) => (
+                  <div key={q.queueId} className="flex items-center gap-3 py-2.5">
+                    <span className="grid size-7 shrink-0 place-items-center rounded-full bg-brand-soft text-xs font-bold text-brand-dark">
+                      {q.position ?? i + 1}
+                    </span>
+                    <p className="truncate text-sm font-semibold">{q.fullName}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-[20px] bg-white p-5 ring-1 ring-black/5">
+            <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">
+              In Match — Players ({inMatchPlayers.length})
+            </h2>
+            {inMatchPlayers.length === 0 ? (
+              <p className="text-sm text-zinc-400">No one's playing right now.</p>
+            ) : (
+              <div className="max-h-96 divide-y divide-zinc-100 overflow-y-auto">
+                {inMatchPlayers.map((p) => (
+                  <div key={p.playerId} className="flex items-center justify-between gap-3 py-2.5">
+                    <p className="truncate text-sm font-semibold">{p.fullName}</p>
+                    <span className="shrink-0 rounded-full bg-brand-soft px-2.5 py-0.5 text-[10px] font-bold uppercase text-brand-dark">
+                      Court {p.courtNumber}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-[20px] bg-white p-5 ring-1 ring-black/5">
+            <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">
+              Next Up ({nextUpCardPlayers.length})
+            </h2>
+            {nextUpCardPlayers.length === 0 ? (
+              <p className="text-sm text-zinc-400">Nothing prepared yet.</p>
+            ) : (
+              <div className="max-h-96 divide-y divide-zinc-100 overflow-y-auto">
+                {nextUpCardPlayers.map((p) => (
+                  <div key={p.playerId} className="flex items-center gap-3 py-2.5">
+                    <p className="truncate text-sm font-semibold">{p.fullName}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-[20px] bg-white p-5 ring-1 ring-black/5">
+            <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">
+              On Deck ({onDeckCardPlayers.length})
+            </h2>
+            {onDeckCardPlayers.length === 0 ? (
+              <p className="text-sm text-zinc-400">Nothing prepared yet.</p>
+            ) : (
+              <div className="max-h-96 divide-y divide-zinc-100 overflow-y-auto">
+                {onDeckCardPlayers.map((p) => (
+                  <div key={p.playerId} className="flex items-center gap-3 py-2.5">
+                    <p className="truncate text-sm font-semibold">{p.fullName}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+
+        {/* Leaderboard */}
+        <section className="mb-8 rounded-[20px] bg-white p-5 ring-1 ring-black/5">
+          <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">Leaderboard</h2>
+          {leaders.length === 0 ? (
+            <p className="text-sm text-zinc-400">No results yet.</p>
+          ) : (
+            <div className="max-h-96 divide-y divide-zinc-100 overflow-y-auto">
+              {leaders.slice(0, 10).map((l) => (
+                <div key={l.playerId} className="flex items-center justify-between py-2.5">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span
+                      className={cn(
+                        "grid size-7 shrink-0 place-items-center rounded-full text-xs font-bold text-zinc-900",
+                        medalTone(l.rank),
+                      )}
+                    >
+                      {l.rank <= 3 ? <Medal className="size-3.5" /> : l.rank}
+                    </span>
+                    <div className="grid size-8 shrink-0 place-items-center rounded-full bg-linear-to-br from-ball to-brand text-[10px] font-bold text-zinc-900">
+                      {initials(l.fullName)}
+                    </div>
+                    <p className="truncate text-sm font-semibold">{l.fullName}</p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2 text-xs font-bold tabular-nums text-zinc-500">
+                    <span>
+                      {l.wins}-{l.losses}
+                    </span>
+                    <StreakIndicator streak={l.streak} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Recent results — same court-styled card treatment as the Matches page */}
+        <section className="rounded-[20px] bg-white p-5 ring-1 ring-black/5">
+          <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">
+            <History className="mr-1.5 inline size-4 text-zinc-400" />
+            {session.status === "Active" ? "Recent Results" : "Final Results"}
+          </h2>
+          {completedMatches.length === 0 ? (
+            <p className="text-sm text-zinc-400">
+              {session.status === "Active" ? "No matches finished yet." : "No matches were recorded in this session."}
+            </p>
+          ) : (
+            <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
+              {completedMatches.slice(0, 10).map((m) => {
+                const t1Score = m.team1Score ?? 0;
+                const t2Score = m.team2Score ?? 0;
+                const t1Won = t1Score > t2Score;
+                const t2Won = t2Score > t1Score;
+                return (
+                  <div
+                    key={m.matchId}
+                    className="rounded-2xl bg-[#8ba668] px-4 py-3 ring-1 ring-black/10"
+                  >
+                    {/* Numerator row — Team 1 */}
+                    <div className={`flex items-center gap-3 ${t1Won ? "" : "opacity-60"}`}>
+                      <span className="grid w-12 shrink-0 place-items-center rounded-lg bg-[#4a7a9c] py-1 text-lg font-black tabular-nums text-white shadow">
+                        {t1Score}
+                      </span>
+                      <p
+                        className={`min-w-0 flex-1 truncate text-sm drop-shadow ${
+                          t1Won ? "font-black text-white" : "font-medium text-white/70"
+                        }`}
+                      >
+                        {m.team1.map((p) => p.fullName).join(" / ")}
+                      </p>
+                      {t1Won && <Trophy className="size-4 shrink-0 fill-yellow-300 text-yellow-300" />}
+                    </div>
+
+                    {/* The fraction bar */}
+                    <div className="my-1.5 ml-[60px] h-px bg-white/40" />
+
+                    {/* Denominator row — Team 2 */}
+                    <div className={`flex items-center gap-3 ${t2Won ? "" : "opacity-60"}`}>
+                      <span className="grid w-12 shrink-0 place-items-center rounded-lg bg-[#4a7a9c] py-1 text-lg font-black tabular-nums text-white shadow">
+                        {t2Score}
+                      </span>
+                      <p
+                        className={`min-w-0 flex-1 truncate text-sm drop-shadow ${
+                          t2Won ? "font-black text-white" : "font-medium text-white/70"
+                        }`}
+                      >
+                        {m.team2.map((p) => p.fullName).join(" / ")}
+                      </p>
+                      {t2Won && <Trophy className="size-4 shrink-0 fill-yellow-300 text-yellow-300" />}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      </main>
+    </div>
+  );
+}
+</file>
+
 <file path="src/services/index.ts">
 export * as authService from "./auth";
 export * as playersService from "./players";
@@ -6067,6 +6069,7 @@ export interface LeaderboardPlayerDto {
   wins: number;
   losses: number;
   rank: number;
+  streak: number;
 }
 
 export interface LeaderboardDto {
@@ -6079,6 +6082,58 @@ export interface ActiveSessionLeaderboardDto {
   sessionId: number;
   sessionName: string;
   leaderboard: LeaderboardPlayerDto[];
+}
+</file>
+
+<file path="src/services/public/public.service.ts">
+import { apiClient } from "../api/client";
+import type { MatchDto, QueueEntryDto } from "../matches/matches.types";
+import type { LeaderboardPlayerDto } from "../leaderboard/leaderboard.types";
+
+// These hit new, unauthenticated endpoints on the backend (see PublicController) — no
+// token required, so this is safe to call from a public "watch" link with no login.
+// apiClient still attaches a token if one happens to be present (e.g. an organizer
+// opening their own watch link), but the backend won't require it here.
+
+export interface PublicSessionDto {
+  sessionId: number;
+  sessionName: string;
+  numberOfCourts: number;
+  status: string;
+  startTime: string;
+  endTime: string;
+}
+
+export async function getPublicSession(sessionId: number): Promise<PublicSessionDto> {
+  const { data } = await apiClient.get<PublicSessionDto>(`/public/sessions/${sessionId}`);
+  return data;
+}
+
+export async function getPublicQueue(sessionId: number): Promise<QueueEntryDto[]> {
+  const { data } = await apiClient.get<QueueEntryDto[]>(`/public/sessions/${sessionId}/queue`);
+  return data;
+}
+
+export async function getPublicActiveMatches(sessionId: number): Promise<MatchDto[]> {
+  const { data } = await apiClient.get<MatchDto[]>(`/public/sessions/${sessionId}/matches/active`);
+  return data;
+}
+
+// Same "next up" data the organizer's Queue page shows — the prepared, not-yet-started
+// matches (target: 2), read-only here.
+export async function getPublicNextUpMatches(sessionId: number): Promise<MatchDto[]> {
+  const { data } = await apiClient.get<MatchDto[]>(`/public/sessions/${sessionId}/matches/next-up`);
+  return data;
+}
+
+export async function getPublicCompletedMatches(sessionId: number): Promise<MatchDto[]> {
+  const { data } = await apiClient.get<MatchDto[]>(`/public/sessions/${sessionId}/matches/completed`);
+  return data;
+}
+
+export async function getPublicLeaderboard(sessionId: number): Promise<LeaderboardPlayerDto[]> {
+  const { data } = await apiClient.get<LeaderboardPlayerDto[]>(`/public/sessions/${sessionId}/leaderboard`);
+  return data;
 }
 </file>
 
@@ -7253,7 +7308,7 @@ export function Panel({
 
 <file path="src/pages/Leaderboard.tsx">
 import { useEffect, useMemo, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, Flame, Snowflake, Trophy } from "lucide-react";
 import { AppShell, PageHeader, Panel } from "@/components/app-shell";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
@@ -7265,6 +7320,13 @@ import {
   SelectLabel,
   SelectItem,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { getSessionLeaderboard, getOverallLeaderboard } from "@/services/leaderboard";
 import type { LeaderboardPlayerDto } from "@/services/leaderboard";
 import { getMySessions } from "@/services/sessions";
@@ -7272,6 +7334,26 @@ import type { SessionDto } from "@/services/sessions";
 
 function initials(name: string) {
   return name.split(" ").map((n) => n[0]).join("");
+}
+
+// Fire for a win streak, ice for a losing streak — session leaderboard only. The
+// numeric label stays alongside the icon so it's not just decorative.
+function StreakBadge({ streak, size = "text-xs" }: { streak: number; size?: string }) {
+  if (streak === 0) {
+    return <span className={`${size} font-bold tabular-nums text-zinc-400`}>—</span>;
+  }
+  if (streak > 0) {
+    return (
+      <span className={`inline-flex items-center gap-1 ${size} font-bold tabular-nums text-orange-600`}>
+        <Flame className="size-3.5 fill-orange-500 text-orange-500" /> {streak}
+      </span>
+    );
+  }
+  return (
+    <span className={`inline-flex items-center gap-1 ${size} font-bold tabular-nums text-sky-600`}>
+      <Snowflake className="size-3.5 fill-sky-400 text-sky-500" /> {Math.abs(streak)}
+    </span>
+  );
 }
 
 function formatSessionDate(iso: string) {
@@ -7417,6 +7499,7 @@ export default function LeaderboardPage() {
 
               <LeaderboardView
                 rankings={sessionRankings}
+                variant="session"
                 subtitle={
                   selectedSession
                     ? `${selectedSession.sessionName} · ${
@@ -7433,6 +7516,7 @@ export default function LeaderboardPage() {
         <TabsContent value="overall">
           <LeaderboardView
             rankings={overallRankings}
+            variant="overall"
             subtitle="This week, across every session — resets every Sunday"
             emptyMessage="No players have recorded matches yet this week."
           />
@@ -7444,13 +7528,17 @@ export default function LeaderboardPage() {
 
 function LeaderboardView({
   rankings,
+  variant,
   subtitle,
   emptyMessage,
 }: {
   rankings: LeaderboardPlayerDto[];
+  variant: "session" | "overall";
   subtitle?: string;
   emptyMessage: string;
 }) {
+  const [selectedPlayer, setSelectedPlayer] = useState<LeaderboardPlayerDto | null>(null);
+
   if (rankings.length === 0) {
     return (
       <Panel className="mt-4 text-center text-sm text-zinc-400">
@@ -7468,13 +7556,32 @@ function LeaderboardView({
       {first && (
         <div className="mb-6 grid grid-cols-3 items-end gap-3 sm:gap-6">
           {second ? (
-            <Podium player={second} height="h-32 sm:h-40" gradient="from-zinc-300 to-zinc-400" medal="🥈" />
+            <Podium
+              player={second}
+              height="h-32 sm:h-40"
+              gradient="from-zinc-300 to-zinc-400"
+              medal="🥈"
+              onClick={() => setSelectedPlayer(second)}
+            />
           ) : (
             <div />
           )}
-          <Podium player={first} height="h-40 sm:h-56" gradient="from-ball to-ball-deep" medal="🥇" featured />
+          <Podium
+            player={first}
+            height="h-40 sm:h-56"
+            gradient="from-ball to-ball-deep"
+            medal="🥇"
+            featured
+            onClick={() => setSelectedPlayer(first)}
+          />
           {third ? (
-            <Podium player={third} height="h-28 sm:h-36" gradient="from-amber-600 to-amber-800" medal="🥉" />
+            <Podium
+              player={third}
+              height="h-28 sm:h-36"
+              gradient="from-amber-600 to-amber-800"
+              medal="🥉"
+              onClick={() => setSelectedPlayer(third)}
+            />
           ) : (
             <div />
           )}
@@ -7484,6 +7591,9 @@ function LeaderboardView({
       <Panel>
         <h2 className="mb-4 text-sm font-semibold">Full rankings</h2>
         <div className="divide-y divide-zinc-100">
+          {/* sm+ : full grid table. Below sm: stats used to just vanish (hidden
+              sm:inline everywhere) — now they show as a wrapped chip row under
+              the name instead of disappearing entirely. */}
           <div className="hidden grid-cols-[3rem_minmax(0,1fr)_4rem_4rem_4rem_4rem_4rem] items-center gap-3 pb-3 text-[10px] font-bold uppercase tracking-wider text-zinc-400 sm:grid">
             <span>Rank</span>
             <span>Player</span>
@@ -7491,55 +7601,132 @@ function LeaderboardView({
             <span className="text-right">Wins</span>
             <span className="text-right">Losses</span>
             <span className="text-right">Games</span>
-            <span className="text-right">Win %</span>
+            <span className="text-right">{variant === "session" ? "Streak" : "Win %"}</span>
           </div>
           {rest.map((p) => (
-            <div
-              key={p.playerId}
-              className="grid grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-3 py-3 sm:grid-cols-[3rem_minmax(0,1fr)_4rem_4rem_4rem_4rem_4rem]"
-            >
-              <span className="text-sm font-bold text-zinc-400 tabular-nums">#{p.rank}</span>
-              <div className="flex min-w-0 items-center gap-3">
-                <div className="grid size-8 shrink-0 place-items-center rounded-full bg-linear-to-br from-ball to-brand text-[10px] font-bold text-zinc-900">
-                  {initials(p.fullName)}
+            <div key={p.playerId} className="py-3">
+              <div className="grid grid-cols-[2.5rem_minmax(0,1fr)] items-center gap-3 sm:grid-cols-[3rem_minmax(0,1fr)_4rem_4rem_4rem_4rem_4rem]">
+                <span className="text-sm font-bold text-zinc-400 tabular-nums">#{p.rank}</span>
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="grid size-8 shrink-0 place-items-center rounded-full bg-linear-to-br from-ball to-brand text-[10px] font-bold text-zinc-900">
+                    {initials(p.fullName)}
+                  </div>
+                  <span className="truncate text-sm font-semibold">{p.fullName}</span>
                 </div>
-                <span className="truncate text-sm font-semibold">{p.fullName}</span>
+                <span className="hidden text-right text-sm font-bold tabular-nums sm:inline">
+                  {Number(p.skillLevel).toFixed(1)}
+                </span>
+                <span className="hidden text-right text-sm font-bold tabular-nums text-brand-dark sm:inline">
+                  {p.wins}
+                </span>
+                <span className="hidden text-right text-sm font-medium tabular-nums text-zinc-500 sm:inline">
+                  {p.losses}
+                </span>
+                <span className="hidden text-right text-sm font-medium tabular-nums text-zinc-500 sm:inline">
+                  {p.gamesPlayed}
+                </span>
+                <span className="hidden text-right sm:inline">
+                  {variant === "session" ? (
+                    <StreakBadge streak={p.streak} />
+                  ) : (
+                    <span className="text-xs font-bold tabular-nums">{Number(p.winPercentage).toFixed(0)}%</span>
+                  )}
+                </span>
               </div>
-              <span className="hidden text-right text-sm font-bold tabular-nums sm:inline">
-                {Number(p.skillLevel).toFixed(1)}
-              </span>
-              <span className="text-right text-sm font-bold tabular-nums text-brand-dark sm:inline">
-                {p.wins}
-              </span>
-              <span className="hidden text-right text-sm font-medium tabular-nums text-zinc-500 sm:inline">
-                {p.losses}
-              </span>
-              <span className="hidden text-right text-sm font-medium tabular-nums text-zinc-500 sm:inline">
-                {p.gamesPlayed}
-              </span>
-              <span className="hidden text-right text-xs font-bold tabular-nums sm:inline">
-                {Number(p.winPercentage).toFixed(0)}%
-              </span>
+
+              {/* Mobile-only stat chips — this is what actually makes the stats
+                  visible on phones/tablets instead of silently disappearing. */}
+              <div className="ml-11 mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] font-semibold text-zinc-500 sm:hidden">
+                <span>Rating {Number(p.skillLevel).toFixed(1)}</span>
+                <span className="text-brand-dark">W {p.wins}</span>
+                <span>L {p.losses}</span>
+                <span>G {p.gamesPlayed}</span>
+                {variant === "session" ? (
+                  <StreakBadge streak={p.streak} size="text-[11px]" />
+                ) : (
+                  <span>{Number(p.winPercentage).toFixed(0)}%</span>
+                )}
+              </div>
             </div>
           ))}
         </div>
       </Panel>
+
+      <PlayerStatsDialog player={selectedPlayer} variant={variant} onClose={() => setSelectedPlayer(null)} />
+    </div>
+  );
+}
+
+function PlayerStatsDialog({
+  player,
+  variant,
+  onClose,
+}: {
+  player: LeaderboardPlayerDto | null;
+  variant: "session" | "overall";
+  onClose: () => void;
+}) {
+  return (
+    <Dialog open={player !== null} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        {player && (
+          <>
+            <DialogHeader>
+              <div className="mx-auto grid size-16 place-items-center rounded-full bg-linear-to-br from-ball to-brand text-lg font-bold text-zinc-900 ring-4 ring-white shadow-lg">
+                {initials(player.fullName)}
+              </div>
+              <DialogTitle className="text-center">{player.fullName}</DialogTitle>
+              <DialogDescription className="text-center">Rank #{player.rank}</DialogDescription>
+            </DialogHeader>
+
+            <div className="grid grid-cols-2 gap-3">
+              <StatBox label="Games Played" value={String(player.gamesPlayed)} />
+              <StatBox label="Wins" value={String(player.wins)} accent />
+              <StatBox label="Losses" value={String(player.losses)} />
+              {variant === "session" ? (
+                <div className="rounded-2xl bg-zinc-50 p-4 text-center">
+                  <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-zinc-400">Streak</p>
+                  <div className="flex justify-center">
+                    <StreakBadge streak={player.streak} size="text-lg" />
+                  </div>
+                </div>
+              ) : (
+                <StatBox label="Win %" value={`${Number(player.winPercentage).toFixed(0)}%`} accent />
+              )}
+            </div>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function StatBox({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <div className="rounded-2xl bg-zinc-50 p-4 text-center">
+      <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-zinc-400">{label}</p>
+      <p className={`text-2xl font-black tabular-nums ${accent ? "text-brand-dark" : "text-zinc-900"}`}>{value}</p>
     </div>
   );
 }
 
 function Podium({
-  player, height, gradient, medal, featured,
+  player, height, gradient, medal, featured, onClick,
 }: {
   player: LeaderboardPlayerDto;
   height: string;
   gradient: string;
   medal: string;
   featured?: boolean;
+  onClick: () => void;
 }) {
   return (
-    <div className="flex flex-col items-center">
-      <div className={`mb-2 text-2xl sm:text-3xl ${featured ? "ball-bounce" : ""}`}>{medal}</div>
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex flex-col items-center transition-transform hover:scale-[1.03] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+    >
+      <div className="ball-bounce mb-2 text-2xl sm:text-3xl">{medal}</div>
       <div className="grid size-14 place-items-center rounded-full bg-linear-to-br from-ball to-brand text-sm font-bold text-zinc-900 ring-4 ring-white shadow-lg sm:size-16">
         {initials(player.fullName)}
       </div>
@@ -7548,9 +7735,56 @@ function Podium({
       <div className={`mt-3 w-full rounded-t-2xl bg-linear-to-b ${gradient} ${height} flex items-start justify-center pt-3 shadow-inner`}>
         <span className="text-2xl font-black text-white/90 sm:text-4xl">#{player.rank}</span>
       </div>
-    </div>
+    </button>
   );
 }
+</file>
+
+<file path="src/services/api/client.ts">
+import axios, { type AxiosError } from "axios";
+import { getToken, clearSession } from "../auth/session.storage";
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || "https://mixflow.runasp.net/api";
+
+export const apiClient = axios.create({
+  baseURL: API_BASE_URL,
+  headers: { "Content-Type": "application/json" },
+});
+
+apiClient.interceptors.request.use((config) => {
+  const token = getToken();
+  if (token) {
+    config.headers = config.headers ?? {};
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+export interface NormalizedApiError {
+  status: number;
+  message: string;
+}
+
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error: AxiosError<{ error?: string; message?: string }>) => {
+    const status = error.response?.status ?? 0;
+    const message =
+      error.response?.data?.error ??
+      error.response?.data?.message ??
+      error.message ??
+      "Something went wrong. Please try again.";
+
+    // Token expired or invalid — drop the local session so the UI can react.
+    if (status === 401) {
+      clearSession();
+    }
+
+    return Promise.reject({ status, message } satisfies NormalizedApiError);
+  }
+);
+
+export default apiClient;
 </file>
 
 <file path="src/pages/Players.tsx">
@@ -7663,17 +7897,29 @@ export default function PlayersPage() {
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setFormError(null);
+
+    const trimmedName = form.fullName.trim();
+    const isDuplicate = players.some(
+      (p) =>
+        p.fullName.trim().toLowerCase() === trimmedName.toLowerCase() &&
+        p.playerId !== editingPlayer?.playerId
+    );
+    if (isDuplicate) {
+      setFormError(`A player named "${trimmedName}" already exists.`);
+      return;
+    }
+
     setSaving(true);
 
     try {
       if (editingPlayer) {
         await updatePlayer(editingPlayer.playerId, {
-          fullName: form.fullName,
+          fullName: trimmedName,
           skillCategory: form.skillCategory,
         });
       } else {
         await createPlayer({
-          fullName: form.fullName,
+          fullName: trimmedName,
           skillCategory: form.skillCategory,
         });
       }
@@ -7939,6 +8185,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { getMySessions, getSessionPlayers, lockPair, unlockPair } from "@/services/sessions";
 import {
@@ -7970,7 +8217,14 @@ export default function QueuePage() {
 
   const [pendingPlayerId, setPendingPlayerId] = useState<number | null>(null);
   const [autoMixing, setAutoMixing] = useState(false);
-  const [lockingPlayerId, setLockingPlayerId] = useState<number | null>(null);
+
+  // Pair-picker dialog: tap up to two players to highlight/select them (from any of
+  // the 4 categories), then tap the confirm button to actually lock them together.
+  // Triggered by one button next to the Queue panel, instead of a lock icon on every
+  // individual player row.
+  const [pairDialogOpen, setPairDialogOpen] = useState(false);
+  const [selectedPairIds, setSelectedPairIds] = useState<number[]>([]);
+  const [pairBlockedMessage, setPairBlockedMessage] = useState<string | null>(null);
 
   // Editing a "Next Up" match
   const [editingMatch, setEditingMatch] = useState<MatchDto | null>(null);
@@ -8057,11 +8311,75 @@ export default function QueuePage() {
     [sessionPlayers, nextUpPlayerIds]
   );
 
+  // Split out of reservedNextUpPlayers specifically for the two display cards below —
+  // "Next Up" is nextUpMatches[0] (fills the very next open court), "On Deck" is
+  // nextUpMatches[1] (fills the court after that). reservedNextUpPlayers itself stays
+  // as the combined set since the lock-pairing selector below still wants both together.
+  const nextUpCardPlayers = useMemo(() => {
+    const ids = new Set<number>();
+    const m = nextUpMatches[0];
+    if (m) {
+      m.team1.forEach((p) => ids.add(p.playerId));
+      m.team2.forEach((p) => ids.add(p.playerId));
+    }
+    return sessionPlayers.filter((sp) => ids.has(sp.playerId));
+  }, [nextUpMatches, sessionPlayers]);
+
+  const onDeckCardPlayers = useMemo(() => {
+    const ids = new Set<number>();
+    const m = nextUpMatches[1];
+    if (m) {
+      m.team1.forEach((p) => ids.add(p.playerId));
+      m.team2.forEach((p) => ids.add(p.playerId));
+    }
+    return sessionPlayers.filter((sp) => ids.has(sp.playerId));
+  }, [nextUpMatches, sessionPlayers]);
+
   const lockedPartnerByPlayerId = useMemo(() => {
     const map = new Map<number, string>();
     sessionPlayers.forEach((sp) => {
       if (sp.lockedPartnerName) map.set(sp.playerId, sp.lockedPartnerName);
     });
+    return map;
+  }, [sessionPlayers]);
+
+  // Every non-benched player, sorted into exactly one of 4 buckets: whichever they're
+  // already locked to someone goes to "alreadyPaired" regardless of where they
+  // currently are; otherwise they land in whichever of the other 3 lists they're
+  // actually in right now.
+  const pairCategories = useMemo(() => {
+    const bucketOf = new Map<number, "inMatch" | "nextUp" | "queue">();
+    inMatchPlayers.forEach((sp) => bucketOf.set(sp.playerId, "inMatch"));
+    reservedNextUpPlayers.forEach((sp) => bucketOf.set(sp.playerId, "nextUp"));
+    queue.forEach((q) => {
+      if (!bucketOf.has(q.playerId)) bucketOf.set(q.playerId, "queue");
+    });
+
+    const result: {
+      inMatch: { playerId: number; fullName: string }[];
+      nextUp: { playerId: number; fullName: string }[];
+      queue: { playerId: number; fullName: string }[];
+      alreadyPaired: { playerId: number; fullName: string; partnerName: string }[];
+    } = { inMatch: [], nextUp: [], queue: [], alreadyPaired: [] };
+
+    sessionPlayers.forEach((sp) => {
+      if (sp.status === "Benched") return;
+      const bucket = bucketOf.get(sp.playerId);
+      if (!bucket) return;
+
+      if (sp.lockedPartnerName) {
+        result.alreadyPaired.push({ playerId: sp.playerId, fullName: sp.fullName, partnerName: sp.lockedPartnerName });
+      } else {
+        result[bucket].push({ playerId: sp.playerId, fullName: sp.fullName });
+      }
+    });
+
+    return result;
+  }, [sessionPlayers, inMatchPlayers, reservedNextUpPlayers, queue]);
+
+  const nameByPlayerId = useMemo(() => {
+    const map = new Map<number, string>();
+    sessionPlayers.forEach((sp) => map.set(sp.playerId, sp.fullName));
     return map;
   }, [sessionPlayers]);
 
@@ -8108,17 +8426,46 @@ export default function QueuePage() {
     }
   };
 
-  const handleLockClick = (playerId: number) => {
-    setLockingPlayerId((current) => (current === playerId ? null : playerId));
+  const openPairDialog = () => {
+    setPairDialogOpen(true);
+    setSelectedPairIds([]);
+    setPairBlockedMessage(null);
+    setError(null);
   };
 
-  const handlePairWith = async (partnerId: number) => {
-    if (!selectedSessionId || lockingPlayerId == null) return;
-    setPendingPlayerId(partnerId);
+  const closePairDialog = () => {
+    setPairDialogOpen(false);
+    setSelectedPairIds([]);
+    setPairBlockedMessage(null);
+  };
+
+  // Tapping a player toggles their selection. With 2 already selected, tapping a third
+  // (unselected) player swaps out whichever of the two was picked first — so you can
+  // just keep tapping to change your mind instead of having to deselect explicitly.
+  const handleTogglePairSelection = (playerId: number) => {
+    setPairBlockedMessage(null);
+    setSelectedPairIds((current) => {
+      if (current.includes(playerId)) return current.filter((id) => id !== playerId);
+      if (current.length >= 2) return [current[1], playerId];
+      return [...current, playerId];
+    });
+  };
+
+  // Clicking someone in the "Already Paired" bucket never selects them — they can't be
+  // paired again without being unpaired first, so this just explains why instead of
+  // silently doing nothing.
+  const handleClickAlreadyPaired = (fullName: string, partnerName: string) => {
+    setPairBlockedMessage(`${fullName} is already paired with ${partnerName}. Unpair them first if you want to change their partner.`);
+  };
+
+  const handleConfirmPair = async () => {
+    if (!selectedSessionId || selectedPairIds.length !== 2) return;
+    const [firstId, secondId] = selectedPairIds;
+    setPendingPlayerId(secondId);
     setError(null);
     try {
-      await lockPair(selectedSessionId, lockingPlayerId, partnerId);
-      setLockingPlayerId(null);
+      await lockPair(selectedSessionId, firstId, secondId);
+      closePairDialog();
       await loadSessionData(selectedSessionId, { silent: true });
     } catch {
       setError("Couldn't lock these two players. Make sure neither is benched or already paired.");
@@ -8139,6 +8486,85 @@ export default function QueuePage() {
     } finally {
       setPendingPlayerId(null);
     }
+  };
+
+  // Still shown per-row — unpairing is a simple single-player action, so there's no
+  // need to send it through the pair-picker dialog. Only renders for players who are
+  // already locked; pairing itself now only happens through the dialog.
+  const renderUnlockControl = (playerId: number) => {
+    if (!lockedPartnerByPlayerId.has(playerId)) return null;
+
+    return (
+      <button
+        onClick={() => handleUnlock(playerId)}
+        disabled={pendingPlayerId === playerId}
+        className="grid size-8 shrink-0 place-items-center rounded-full text-zinc-400 hover:bg-amber-50 hover:text-amber-600 disabled:opacity-50"
+        title="Unlock pair"
+      >
+        <Unlock className="size-3.5" />
+      </button>
+    );
+  };
+
+  const IN_MATCH_PAIR_NOTE =
+    "Pairing with someone who's mid-match takes effect starting their next match — it won't change the match they're currently playing.";
+
+  const renderPairCategory = (
+    title: string,
+    items: { playerId: number; fullName: string }[],
+    selectedIds: number[],
+    onToggle: (playerId: number) => void,
+    note?: string
+  ) => {
+    if (items.length === 0) return null;
+    return (
+      <div>
+        <p className="mb-1.5 text-xs font-bold uppercase tracking-wider text-zinc-400">
+          {title} ({items.length})
+        </p>
+        {note && <p className="mb-1.5 text-xs text-zinc-500">{note}</p>}
+        <div className="flex max-h-40 flex-col gap-1 overflow-y-auto pr-1">
+          {items.map((p) => {
+            const selected = selectedIds.includes(p.playerId);
+            return (
+              <button
+                key={p.playerId}
+                disabled={pendingPlayerId === p.playerId}
+                onClick={() => onToggle(p.playerId)}
+                className={`w-full shrink-0 truncate rounded-xl px-3 py-2 text-left text-sm font-medium disabled:opacity-50 ${
+                  selected ? "bg-brand text-zinc-900" : "hover:bg-brand-soft"
+                }`}
+              >
+                {p.fullName}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const renderAlreadyPairedCategory = (items: { playerId: number; fullName: string; partnerName: string }[]) => {
+    if (items.length === 0) return null;
+    return (
+      <div>
+        <p className="mb-1.5 text-xs font-bold uppercase tracking-wider text-zinc-400">
+          Already Paired ({items.length})
+        </p>
+        <div className="flex max-h-40 flex-col gap-1 overflow-y-auto pr-1">
+          {items.map((p) => (
+            <button
+              key={p.playerId}
+              onClick={() => handleClickAlreadyPaired(p.fullName, p.partnerName)}
+              className="flex w-full shrink-0 items-center justify-between gap-2 truncate rounded-xl bg-zinc-50 px-3 py-2 text-left text-sm font-medium text-zinc-400"
+            >
+              <span className="truncate">{p.fullName}</span>
+              <span className="shrink-0 text-xs font-normal">🔒 {p.partnerName}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
   };
 
   const openEdit = (match: MatchDto) => {
@@ -8361,23 +8787,28 @@ export default function QueuePage() {
           </Panel>
 
           <Panel className="col-span-12 lg:col-span-8">
-            <h2 className="mb-4 text-sm font-semibold">Queue</h2>
+            <div className="mb-4 flex items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold">Queue</h2>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={openPairDialog}
+                className="shrink-0 gap-1.5 rounded-full"
+              >
+                <Lock className="size-3.5" /> Pair Players
+              </Button>
+            </div>
             {queue.length === 0 ? (
               <p className="text-sm text-zinc-400">No one's in the queue yet.</p>
             ) : (
               <div className="max-h-96 divide-y divide-zinc-100 overflow-y-auto">
                 {queue.map((q, i) => {
-                  const isPicking = lockingPlayerId !== null;
-                  const isPickingThis = lockingPlayerId === q.playerId;
                   const alreadyLocked = lockedPartnerByPlayerId.has(q.playerId);
-                  const isPickTarget = isPicking && !isPickingThis && !alreadyLocked;
 
                   return (
                     <div
                       key={q.queueId}
-                      className={`grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-2 py-3 ${
-                        isPickingThis ? "rounded-lg bg-brand-soft px-2" : ""
-                      }`}
+                      className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-2 py-3"
                     >
                       <div className="grid size-8 shrink-0 place-items-center rounded-full bg-brand-soft text-xs font-bold text-brand-dark">
                         {q.position ?? i + 1}
@@ -8390,37 +8821,7 @@ export default function QueuePage() {
                         </p>
                       </div>
 
-                      {alreadyLocked ? (
-                        <button
-                          onClick={() => handleUnlock(q.playerId)}
-                          disabled={pendingPlayerId === q.playerId}
-                          className="grid size-8 shrink-0 place-items-center rounded-full text-zinc-400 hover:bg-amber-50 hover:text-amber-600 disabled:opacity-50"
-                          title="Unlock pair"
-                        >
-                          <Unlock className="size-3.5" />
-                        </button>
-                      ) : isPickTarget ? (
-                        <Button
-                          size="sm"
-                          disabled={pendingPlayerId === q.playerId}
-                          onClick={() => handlePairWith(q.playerId)}
-                          className="h-8 shrink-0 rounded-full px-2.5 text-xs"
-                        >
-                          Pair
-                        </Button>
-                      ) : (
-                        <button
-                          onClick={() => handleLockClick(q.playerId)}
-                          className={`grid size-8 shrink-0 place-items-center rounded-full ${
-                            isPickingThis
-                              ? "bg-brand text-zinc-900"
-                              : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
-                          }`}
-                          title="Lock with a partner"
-                        >
-                          <Lock className="size-3.5" />
-                        </button>
-                      )}
+                      {renderUnlockControl(q.playerId)}
 
                       <Button
                         size="sm"
@@ -8436,14 +8837,9 @@ export default function QueuePage() {
                 })}
               </div>
             )}
-            {lockingPlayerId !== null && (
-              <p className="mt-2 text-xs text-zinc-400">
-                Tap "Pair" on another queued player, or the lock icon again to cancel.
-              </p>
-            )}
           </Panel>
 
-          <Panel className="col-span-12 lg:col-span-4">
+          <Panel className="col-span-12 lg:col-span-3">
             <h2 className="mb-4 text-sm font-semibold">On the bench</h2>
             {benched.length === 0 ? (
               <p className="text-sm text-zinc-400">No one's benched.</p>
@@ -8473,27 +8869,68 @@ export default function QueuePage() {
           </Panel>
 
           {inMatchPlayers.length > 0 && (
-            <Panel className="col-span-12 lg:col-span-4">
+            <Panel className="col-span-12 lg:col-span-3">
               <h2 className="mb-4 text-sm font-semibold">In a Match ({inMatchPlayers.length})</h2>
               <div className="flex max-h-72 flex-col gap-2 overflow-y-auto">
                 {inMatchPlayers.map((sp) => (
-                  <div key={sp.playerId} className="rounded-xl px-3 py-2 ring-1 ring-zinc-100">
-                    <p className="truncate text-sm font-medium">{sp.fullName}</p>
-                    <p className="text-xs text-zinc-400">{sp.skillCategory}</p>
+                  <div
+                    key={sp.playerId}
+                    className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-xl px-3 py-2 ring-1 ring-zinc-100"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{sp.fullName}</p>
+                      <p className="text-xs text-zinc-400">
+                        {sp.skillCategory}
+                        {lockedPartnerByPlayerId.has(sp.playerId) ? ` • 🔒 with ${lockedPartnerByPlayerId.get(sp.playerId)}` : ""}
+                      </p>
+                    </div>
+                    {renderUnlockControl(sp.playerId)}
                   </div>
                 ))}
               </div>
             </Panel>
           )}
 
-          {reservedNextUpPlayers.length > 0 && (
-            <Panel className="col-span-12 lg:col-span-4">
-              <h2 className="mb-4 text-sm font-semibold">Reserved — Next Up ({reservedNextUpPlayers.length})</h2>
+          {nextUpCardPlayers.length > 0 && (
+            <Panel className="col-span-12 lg:col-span-3">
+              <h2 className="mb-4 text-sm font-semibold">Next Up ({nextUpCardPlayers.length})</h2>
               <div className="flex max-h-72 flex-col gap-2 overflow-y-auto">
-                {reservedNextUpPlayers.map((sp) => (
-                  <div key={sp.playerId} className="rounded-xl px-3 py-2 ring-1 ring-zinc-100">
-                    <p className="truncate text-sm font-medium">{sp.fullName}</p>
-                    <p className="text-xs text-zinc-400">{sp.skillCategory}</p>
+                {nextUpCardPlayers.map((sp) => (
+                  <div
+                    key={sp.playerId}
+                    className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-xl px-3 py-2 ring-1 ring-zinc-100"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{sp.fullName}</p>
+                      <p className="text-xs text-zinc-400">
+                        {sp.skillCategory}
+                        {lockedPartnerByPlayerId.has(sp.playerId) ? ` • 🔒 with ${lockedPartnerByPlayerId.get(sp.playerId)}` : ""}
+                      </p>
+                    </div>
+                    {renderUnlockControl(sp.playerId)}
+                  </div>
+                ))}
+              </div>
+            </Panel>
+          )}
+
+          {onDeckCardPlayers.length > 0 && (
+            <Panel className="col-span-12 lg:col-span-3">
+              <h2 className="mb-4 text-sm font-semibold">On Deck ({onDeckCardPlayers.length})</h2>
+              <div className="flex max-h-72 flex-col gap-2 overflow-y-auto">
+                {onDeckCardPlayers.map((sp) => (
+                  <div
+                    key={sp.playerId}
+                    className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-xl px-3 py-2 ring-1 ring-zinc-100"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{sp.fullName}</p>
+                      <p className="text-xs text-zinc-400">
+                        {sp.skillCategory}
+                        {lockedPartnerByPlayerId.has(sp.playerId) ? ` • 🔒 with ${lockedPartnerByPlayerId.get(sp.playerId)}` : ""}
+                      </p>
+                    </div>
+                    {renderUnlockControl(sp.playerId)}
                   </div>
                 ))}
               </div>
@@ -8588,6 +9025,50 @@ export default function QueuePage() {
               {swapError && <p className="mt-3 text-sm text-red-500">{swapError}</p>}
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={pairDialogOpen} onOpenChange={(o) => !o && closePairDialog()}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Pair two players</DialogTitle>
+            <DialogDescription>
+              Tap two players below to select them, then confirm to lock them together as a fixed doubles pair for
+              the rest of this session.
+            </DialogDescription>
+          </DialogHeader>
+
+          {pairBlockedMessage && (
+            <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">{pairBlockedMessage}</p>
+          )}
+
+          <div className="space-y-4">
+            {renderPairCategory("In Match", pairCategories.inMatch, selectedPairIds, handleTogglePairSelection, IN_MATCH_PAIR_NOTE)}
+            {renderPairCategory("Next Up", pairCategories.nextUp, selectedPairIds, handleTogglePairSelection)}
+            {renderPairCategory("Queue", pairCategories.queue, selectedPairIds, handleTogglePairSelection)}
+            {renderAlreadyPairedCategory(pairCategories.alreadyPaired)}
+
+            {pairCategories.inMatch.length === 0 &&
+              pairCategories.nextUp.length === 0 &&
+              pairCategories.queue.length === 0 &&
+              pairCategories.alreadyPaired.length === 0 && (
+                <p className="py-4 text-center text-sm text-zinc-400">No players available right now.</p>
+              )}
+          </div>
+
+          {error && <p className="mt-3 text-sm text-red-500">{error}</p>}
+
+          <DialogFooter>
+            <Button
+              disabled={selectedPairIds.length !== 2 || pendingPlayerId !== null}
+              onClick={handleConfirmPair}
+              className="w-full rounded-full sm:w-auto"
+            >
+              {selectedPairIds.length === 2
+                ? `Pair ${nameByPlayerId.get(selectedPairIds[0])} & ${nameByPlayerId.get(selectedPairIds[1])}`
+                : `Select ${2 - selectedPairIds.length} more player${2 - selectedPairIds.length === 1 ? "" : "s"}`}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </AppShell>
@@ -8963,7 +9444,7 @@ const formatDateLabel = (yyyyMmDd: string) => {
                         )}
                       </div>
                       <p className="mt-0.5 text-xs text-zinc-500">
-                        {s.startTime.slice(0, 5)}–{s.endTime.slice(0, 5)} • {s.numberOfCourts} courts • {s.totalMatchesPlayed} game
+                        {formatTimeLabel(s.startTime.slice(0, 5))}–{formatTimeLabel(s.endTime.slice(0, 5))} • {s.numberOfCourts} courts • {s.totalMatchesPlayed} game
                         {s.totalMatchesPlayed === 1 ? "" : "s"} played
                       </p>
                     </div>
@@ -9327,57 +9808,10 @@ function ReviewRow({ label, value }: { label: string; value: string }) {
 }
 </file>
 
-<file path="src/services/api/client.ts">
-import axios, { type AxiosError } from "axios";
-import { getToken, clearSession } from "../auth/session.storage";
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || "https://mixflow.runasp.net/api";
-
-export const apiClient = axios.create({
-  baseURL: API_BASE_URL,
-  headers: { "Content-Type": "application/json" },
-});
-
-apiClient.interceptors.request.use((config) => {
-  const token = getToken();
-  if (token) {
-    config.headers = config.headers ?? {};
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
-export interface NormalizedApiError {
-  status: number;
-  message: string;
-}
-
-apiClient.interceptors.response.use(
-  (response) => response,
-  (error: AxiosError<{ error?: string; message?: string }>) => {
-    const status = error.response?.status ?? 0;
-    const message =
-      error.response?.data?.error ??
-      error.response?.data?.message ??
-      error.message ??
-      "Something went wrong. Please try again.";
-
-    // Token expired or invalid — drop the local session so the UI can react.
-    if (status === 401) {
-      clearSession();
-    }
-
-    return Promise.reject({ status, message } satisfies NormalizedApiError);
-  }
-);
-
-export default apiClient;
-</file>
-
 <file path="src/pages/Matches.tsx">
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Loader2, Shuffle, ArrowLeftRight, History } from "lucide-react";
+import { Loader2, Shuffle, ArrowLeftRight, History, Trophy, Flame, Snowflake } from "lucide-react";
 import { AppShell, PageHeader, Panel } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9441,6 +9875,9 @@ export default function MatchesPage() {
   const [swapBusy, setSwapBusy] = useState(false);
   const [swapError, setSwapError] = useState<string | null>(null);
 
+  // Filtering the results list to one player, via clicking their row in "All Players"
+  const [selectedPlayerId, setSelectedPlayerId] = useState<number | null>(null);
+
   const isLive = session?.status === "Active";
 
   useEffect(() => {
@@ -9502,6 +9939,7 @@ export default function MatchesPage() {
   };
 
   useEffect(() => {
+    setSelectedPlayerId(null);
     if (session) void loadMatches(session.sessionId, isLive);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
@@ -9568,6 +10006,21 @@ export default function MatchesPage() {
     } finally {
       setSwapBusy(false);
     }
+  };
+
+  const displayedMatches = useMemo(() => {
+    if (!selectedPlayerId) return completedMatches;
+    return completedMatches.filter((m) =>
+      [...m.team1, ...m.team2].some((p) => p.playerId === selectedPlayerId)
+    );
+  }, [completedMatches, selectedPlayerId]);
+
+  const selectedPlayerName = selectedPlayerId
+    ? sessionPlayerStats.find((p) => p.playerId === selectedPlayerId)?.fullName
+    : null;
+
+  const handleTogglePlayerFilter = (playerId: number) => {
+    setSelectedPlayerId((current) => (current === playerId ? null : playerId));
   };
 
   if (sessionLoading) {
@@ -9738,67 +10191,6 @@ export default function MatchesPage() {
           </div>
           )}
 
-          <div className="mt-6">
-            <Panel>
-              <h2 className="mb-4 text-sm font-semibold">
-                <History className="mr-1.5 inline size-4 text-zinc-400" />
-                {isLive ? "Recent results" : "Final results"}
-              </h2>
-              {completedMatches.length === 0 ? (
-                <p className="text-sm text-zinc-400">
-                  {isLive ? "No completed matches yet this session." : "No matches were recorded in this session."}
-                </p>
-              ) : (
-                <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
-                  {completedMatches.map((m) => {
-                    const t1Score = m.team1Score ?? 0;
-                    const t2Score = m.team2Score ?? 0;
-                    const t1Won = t1Score > t2Score;
-                    const t2Won = t2Score > t1Score;
-                    return (
-                      <div
-                        key={m.matchId}
-                        className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 rounded-2xl bg-[#8ba668] px-4 py-3 ring-1 ring-black/10"
-                      >
-                        <p
-                          className={`truncate text-right text-sm drop-shadow ${
-                            t1Won ? "font-black text-white" : "font-medium text-white/60"
-                          }`}
-                        >
-                          {t1Won && "🏆 "}
-                          {m.team1.map((p) => p.fullName).join(" / ")}
-                        </p>
-
-                        {/* Same court-styled badge as the big live cards: blue sides,
-                            light-blue kitchen strip, thin net line down the middle. */}
-                        <div className="grid shrink-0 grid-cols-[auto_10px_auto] overflow-hidden rounded-full border-2 border-white shadow">
-                          <span className="bg-[#4a7a9c] px-3 py-1.5 text-sm font-black tabular-nums text-white">
-                            {t1Score}
-                          </span>
-                          <span className="relative bg-[#5ec2dd]">
-                            <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-zinc-900" />
-                          </span>
-                          <span className="bg-[#4a7a9c] px-3 py-1.5 text-sm font-black tabular-nums text-white">
-                            {t2Score}
-                          </span>
-                        </div>
-
-                        <p
-                          className={`truncate text-sm drop-shadow ${
-                            t2Won ? "font-black text-white" : "font-medium text-white/60"
-                          }`}
-                        >
-                          {m.team2.map((p) => p.fullName).join(" / ")}
-                          {t2Won && " 🏆"}
-                        </p>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </Panel>
-          </div>
-
           {!isLive && (
             <div className="mt-6">
               <Panel>
@@ -9812,26 +10204,41 @@ export default function MatchesPage() {
                       <span className="text-right">Games</span>
                       <span className="text-right">Wins</span>
                       <span className="text-right">Losses</span>
-                      <span className="text-right">Win %</span>
+                      <span className="text-right">Streak</span>
                     </div>
                     <div className="divide-y divide-zinc-100">
                       {sessionPlayerStats.map((p) => (
-                        <div
+                        <button
                           key={p.playerId}
-                          className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-3 sm:grid-cols-[minmax(0,1fr)_5rem_4rem_4rem_4rem]"
+                          onClick={() => handleTogglePlayerFilter(p.playerId)}
+                          className={`flex w-full flex-col gap-2 rounded-lg px-2 py-3 text-left transition-colors sm:grid sm:grid-cols-[minmax(0,1fr)_5rem_4rem_4rem_4rem] sm:items-center sm:gap-3 ${
+                            selectedPlayerId === p.playerId ? "bg-brand-soft" : "hover:bg-zinc-50"
+                          }`}
                         >
                           <p className="truncate text-sm font-semibold">{p.fullName}</p>
-                          <span className="text-right text-sm font-bold tabular-nums sm:inline">{p.gamesPlayed}</span>
+
+                          {/* Below sm: all four stats as compact labeled chips instead of vanishing entirely */}
+                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs sm:hidden">
+                            <StatChip label="Games" value={String(p.gamesPlayed)} />
+                            <StatChip label="Wins" value={String(p.wins)} accent />
+                            <StatChip label="Losses" value={String(p.losses)} />
+                            <span className="flex items-center gap-1">
+                              <span className="text-zinc-400">Streak</span>
+                              <StreakIndicator streak={p.streak} />
+                            </span>
+                          </div>
+
+                          <span className="hidden text-right text-sm font-bold tabular-nums sm:inline">{p.gamesPlayed}</span>
                           <span className="hidden text-right text-sm font-bold tabular-nums text-brand-dark sm:inline">
                             {p.wins}
                           </span>
                           <span className="hidden text-right text-sm font-medium tabular-nums text-zinc-500 sm:inline">
                             {p.losses}
                           </span>
-                          <span className="hidden text-right text-xs font-bold tabular-nums sm:inline">
-                            {p.winPercentage.toFixed(0)}%
+                          <span className="hidden text-right sm:inline">
+                            <StreakIndicator streak={p.streak} />
                           </span>
-                        </div>
+                        </button>
                       ))}
                     </div>
                   </div>
@@ -9839,6 +10246,83 @@ export default function MatchesPage() {
               </Panel>
             </div>
           )}
+
+          <div className="mt-6">
+            <Panel>
+              <div className="mb-4 flex items-center justify-between gap-2">
+                <h2 className="text-sm font-semibold">
+                  <History className="mr-1.5 inline size-4 text-zinc-400" />
+                  {isLive ? "Recent results" : "Final results"}
+                  {selectedPlayerName && <span className="font-normal text-zinc-400"> — {selectedPlayerName}</span>}
+                </h2>
+                {selectedPlayerId && (
+                  <button
+                    onClick={() => setSelectedPlayerId(null)}
+                    className="shrink-0 text-xs font-semibold text-brand-dark underline underline-offset-2"
+                  >
+                    Show all
+                  </button>
+                )}
+              </div>
+              {displayedMatches.length === 0 ? (
+                <p className="text-sm text-zinc-400">
+                  {selectedPlayerId
+                    ? `${selectedPlayerName} hasn't played a recorded match this session.`
+                    : isLive
+                      ? "No completed matches yet this session."
+                      : "No matches were recorded in this session."}
+                </p>
+              ) : (
+                <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
+                  {displayedMatches.map((m) => {
+                    const t1Score = m.team1Score ?? 0;
+                    const t2Score = m.team2Score ?? 0;
+                    const t1Won = t1Score > t2Score;
+                    const t2Won = t2Score > t1Score;
+                    return (
+                      <div
+                        key={m.matchId}
+                        className="rounded-2xl bg-[#8ba668] px-4 py-3 ring-1 ring-black/10"
+                      >
+                        {/* Numerator row — Team 1 */}
+                        <div className={`flex items-center gap-3 ${t1Won ? "" : "opacity-60"}`}>
+                          <span className="grid w-12 shrink-0 place-items-center rounded-lg bg-[#4a7a9c] py-1 text-lg font-black tabular-nums text-white shadow">
+                            {t1Score}
+                          </span>
+                          <p
+                            className={`min-w-0 flex-1 truncate text-sm drop-shadow ${
+                              t1Won ? "font-black text-white" : "font-medium text-white/70"
+                            }`}
+                          >
+                            {m.team1.map((p) => p.fullName).join(" / ")}
+                          </p>
+                          {t1Won && <Trophy className="size-4 shrink-0 fill-yellow-300 text-yellow-300" />}
+                        </div>
+
+                        {/* The fraction bar */}
+                        <div className="my-1.5 ml-[60px] h-px bg-white/40" />
+
+                        {/* Denominator row — Team 2 */}
+                        <div className={`flex items-center gap-3 ${t2Won ? "" : "opacity-60"}`}>
+                          <span className="grid w-12 shrink-0 place-items-center rounded-lg bg-[#4a7a9c] py-1 text-lg font-black tabular-nums text-white shadow">
+                            {t2Score}
+                          </span>
+                          <p
+                            className={`min-w-0 flex-1 truncate text-sm drop-shadow ${
+                              t2Won ? "font-black text-white" : "font-medium text-white/70"
+                            }`}
+                          >
+                            {m.team2.map((p) => p.fullName).join(" / ")}
+                          </p>
+                          {t2Won && <Trophy className="size-4 shrink-0 fill-yellow-300 text-yellow-300" />}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </Panel>
+          </div>
         </>
       )}
 
@@ -9901,6 +10385,34 @@ export default function MatchesPage() {
   );
 }
 
+function StatChip({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <span className="flex items-center gap-1">
+      <span className="text-zinc-400">{label}</span>
+      <span className={`font-bold tabular-nums ${accent ? "text-brand-dark" : "text-zinc-700"}`}>{value}</span>
+    </span>
+  );
+}
+
+// Same fire/ice treatment as the Leaderboard page's session view.
+function StreakIndicator({ streak, size = "text-xs" }: { streak: number; size?: string }) {
+  if (streak === 0) {
+    return <span className={`${size} font-bold tabular-nums text-zinc-400`}>—</span>;
+  }
+  if (streak > 0) {
+    return (
+      <span className={`inline-flex items-center gap-1 ${size} font-bold tabular-nums text-orange-600`}>
+        <Flame className="size-3.5 fill-orange-500 text-orange-500" /> {streak}
+      </span>
+    );
+  }
+  return (
+    <span className={`inline-flex items-center gap-1 ${size} font-bold tabular-nums text-sky-600`}>
+      <Snowflake className="size-3.5 fill-sky-400 text-sky-500" /> {Math.abs(streak)}
+    </span>
+  );
+}
+
 function RecordResultDialog({
   match,
   sessionId,
@@ -9926,10 +10438,55 @@ function RecordResultDialog({
   if (!match) return null;
 
   const handleSubmit = async () => {
+    // --- Team composition validation ---
+    // These guard against a corrupted/malformed match object rather than user input
+    // (the dialog doesn't let anyone pick players) — but if any of these ever fail,
+    // submitting a result would silently misattribute stats to the wrong players.
+    const team1Ids = match.team1.map((p) => p.playerId);
+    const team2Ids = match.team2.map((p) => p.playerId);
+
+    if (team1Ids.length !== 2 || team2Ids.length !== 2) {
+      setError("Each team needs exactly 2 players to record a result.");
+      return;
+    }
+    if (new Set(team1Ids).size !== team1Ids.length || new Set(team2Ids).size !== team2Ids.length) {
+      setError("A player appears twice on the same team — this match can't be recorded as-is.");
+      return;
+    }
+    const overlap = team1Ids.filter((id) => team2Ids.includes(id));
+    if (overlap.length > 0) {
+      setError("A player is listed on both teams — this match can't be recorded as-is.");
+      return;
+    }
+
+    // --- Score validation ---
+    if (team1Score.trim() === "" || team2Score.trim() === "") {
+      setError("Enter a score for both teams.");
+      return;
+    }
+
     const t1 = Number(team1Score);
     const t2 = Number(team2Score);
-    if (!Number.isFinite(t1) || !Number.isFinite(t2) || t1 < 0 || t2 < 0) {
-      setError("Enter a valid, non-negative score for both teams.");
+    if (!Number.isInteger(t1) || !Number.isInteger(t2) || t1 < 0 || t2 < 0) {
+      setError("Scores must be whole numbers, 0 or higher.");
+      return;
+    }
+    const winnerScore = Math.max(t1, t2);
+    const margin = Math.abs(t1 - t2);
+    if (margin === 0) {
+      setError("Scores can't be tied — a match needs a winner.");
+      return;
+    }
+    // Standard pickleball rules: win by at least 2, and the winner must actually
+    // reach the target score (11 for a standard game) rather than just edging ahead
+    // early — e.g. 11-9 is a legal finish, 6-4 isn't, and 11-10 isn't (no 2-point margin).
+    // If your sessions play to 15 or 21 instead, adjust the 11 below to match.
+    if (winnerScore < 11) {
+      setError("The winning team needs at least 11 points to finish a game.");
+      return;
+    }
+    if (margin < 2) {
+      setError("A game must be won by at least 2 points.");
       return;
     }
     if (match.courtNumber == null) {
@@ -9939,11 +10496,41 @@ function RecordResultDialog({
 
     setSubmitting(true);
     setError(null);
+
+    // Re-verify against the live match state right before submitting — the teams
+    // shown in this dialog could be stale if someone swapped players via
+    // swap-teams/swap-with-queue while this dialog was open.
+    try {
+      const freshMatches = await getActiveMatches(sessionId);
+      const freshMatch = freshMatches.find((m) => m.matchId === match.matchId);
+
+      if (!freshMatch) {
+        setError("This match is no longer active — it may have already been recorded or removed. Close this dialog and check again.");
+        setSubmitting(false);
+        return;
+      }
+
+      const freshTeam1Ids = new Set(freshMatch.team1.map((p) => p.playerId));
+      const freshTeam2Ids = new Set(freshMatch.team2.map((p) => p.playerId));
+      const sameTeam1 = team1Ids.length === freshTeam1Ids.size && team1Ids.every((id) => freshTeam1Ids.has(id));
+      const sameTeam2 = team2Ids.length === freshTeam2Ids.size && team2Ids.every((id) => freshTeam2Ids.has(id));
+
+      if (!sameTeam1 || !sameTeam2) {
+        setError("The players on this match changed since you opened this dialog. Close it and reopen to see the current lineup before recording.");
+        setSubmitting(false);
+        return;
+      }
+    } catch {
+      setError("Couldn't verify the current match lineup. Please try again.");
+      setSubmitting(false);
+      return;
+    }
+
     try {
       await recordMatchResult(sessionId, {
         courtNumber: match.courtNumber,
-        team1PlayerIds: match.team1.map((p) => p.playerId),
-        team2PlayerIds: match.team2.map((p) => p.playerId),
+        team1PlayerIds: team1Ids,
+        team2PlayerIds: team2Ids,
         team1Score: t1,
         team2Score: t2,
       });
@@ -9964,12 +10551,17 @@ function RecordResultDialog({
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <p className="mb-1 truncate text-sm font-semibold">
-              {match.team1.map((p) => p.fullName).join(" / ")}
-            </p>
+            <div className="mb-1.5 space-y-0.5">
+              {match.team1.map((p) => (
+                <p key={p.playerId} className="truncate text-sm font-semibold">
+                  {p.fullName}
+                </p>
+              ))}
+            </div>
             <Input
               type="number"
               min={0}
+              step={1}
               inputMode="numeric"
               value={team1Score}
               onChange={(e) => setTeam1Score(e.target.value)}
@@ -9977,12 +10569,17 @@ function RecordResultDialog({
             />
           </div>
           <div>
-            <p className="mb-1 truncate text-sm font-semibold">
-              {match.team2.map((p) => p.fullName).join(" / ")}
-            </p>
+            <div className="mb-1.5 space-y-0.5">
+              {match.team2.map((p) => (
+                <p key={p.playerId} className="truncate text-sm font-semibold">
+                  {p.fullName}
+                </p>
+              ))}
+            </div>
             <Input
               type="number"
               min={0}
+              step={1}
               inputMode="numeric"
               value={team2Score}
               onChange={(e) => setTeam2Score(e.target.value)}

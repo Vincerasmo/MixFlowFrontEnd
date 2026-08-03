@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Flame, Snowflake, Trophy } from "lucide-react";
+import { Loader2, Flame, Snowflake } from "lucide-react";
 import { AppShell, PageHeader, Panel } from "@/components/app-shell";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
@@ -402,7 +402,7 @@ function StatBox({ label, value, accent }: { label: string; value: string; accen
 }
 
 function Podium({
-  player, height, gradient, medal, featured, onClick,
+  player, height, gradient, medal, onClick,
 }: {
   player: LeaderboardPlayerDto;
   height: string;

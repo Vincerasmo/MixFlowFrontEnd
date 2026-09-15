@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Loader2, Flame, Snowflake } from "lucide-react";
 import { AppShell, PageHeader, Panel } from "@/components/app-shell";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectTrigger,
@@ -18,7 +19,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { getSessionLeaderboard, getOverallLeaderboard } from "@/services/leaderboard";
+import { getSessionLeaderboard } from "@/services/leaderboard";
 import type { LeaderboardPlayerDto } from "@/services/leaderboard";
 import { getMySessions } from "@/services/sessions";
 import type { SessionDto } from "@/services/sessions";
@@ -27,8 +28,7 @@ function initials(name: string) {
   return name.split(" ").map((n) => n[0]).join("");
 }
 
-// Fire for a win streak, ice for a losing streak — session leaderboard only. The
-// numeric label stays alongside the icon so it's not just decorative.
+// Fire for a win streak, ice for a losing streak.
 function StreakBadge({ streak, size = "text-xs" }: { streak: number; size?: string }) {
   if (streak === 0) {
     return <span className={`${size} font-bold tabular-nums text-zinc-400`}>—</span>;
@@ -57,22 +57,20 @@ export default function LeaderboardPage() {
   const [sessionRankings, setSessionRankings] = useState<LeaderboardPlayerDto[]>([]);
   const [sessionSwitching, setSessionSwitching] = useState(false);
 
-  const [overallRankings, setOverallRankings] = useState<LeaderboardPlayerDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
-    Promise.all([getMySessions(), getOverallLeaderboard()])
-      .then(([allSessions, overall]) => {
+    getMySessions()
+      .then((allSessions) => {
         if (cancelled) return;
 
         const sorted = [...allSessions].sort(
           (a, b) => new Date(b.sessionDate).getTime() - new Date(a.sessionDate).getTime()
         );
         setSessions(sorted);
-        setOverallRankings(overall);
 
         const defaultSession = sorted.find((s) => s.status === "Active") ?? sorted[0];
         if (defaultSession) setSelectedSessionId(defaultSession.sessionId);
@@ -141,90 +139,69 @@ export default function LeaderboardPage() {
     <AppShell>
       <PageHeader eyebrow="Standings" title="Leaderboard" subtitle="Updated in real time as matches finish." />
 
-      <Tabs defaultValue="session">
-        <TabsList>
-          <TabsTrigger value="session">Session</TabsTrigger>
-          <TabsTrigger value="overall">Overall</TabsTrigger>
-        </TabsList>
+      {sessions.length === 0 ? (
+        <Panel className="text-center text-sm text-zinc-400">
+          No sessions yet. Start a session to see standings here.
+        </Panel>
+      ) : (
+        <>
+          <div className="mb-4 flex items-center gap-2">
+            <Select
+              value={selectedSessionId?.toString() ?? undefined}
+              onValueChange={(v) => setSelectedSessionId(Number(v))}
+            >
+              <SelectTrigger className="w-full sm:w-72">
+                <SelectValue placeholder="Choose a session" />
+              </SelectTrigger>
+              <SelectContent>
+                {activeSessions.length > 0 && (
+                  <SelectGroup>
+                    <SelectLabel>Active now</SelectLabel>
+                    {activeSessions.map((s) => (
+                      <SelectItem key={s.sessionId} value={s.sessionId.toString()}>
+                        {s.sessionName}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                )}
+                {pastSessions.length > 0 && (
+                  <SelectGroup>
+                    <SelectLabel>Past sessions</SelectLabel>
+                    {pastSessions.map((s) => (
+                      <SelectItem key={s.sessionId} value={s.sessionId.toString()}>
+                        {s.sessionName} — {formatSessionDate(s.sessionDate)}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                )}
+              </SelectContent>
+            </Select>
+            {sessionSwitching && <Loader2 className="size-4 shrink-0 animate-spin text-zinc-400" />}
+          </div>
 
-        <TabsContent value="session">
-          {sessions.length === 0 ? (
-            <Panel className="mt-4 text-center text-sm text-zinc-400">
-              No sessions yet. Start a session to see standings here.
-            </Panel>
-          ) : (
-            <>
-              <div className="mt-4 flex items-center gap-2">
-                <Select
-                  value={selectedSessionId?.toString() ?? undefined}
-                  onValueChange={(v) => setSelectedSessionId(Number(v))}
-                >
-                  <SelectTrigger className="w-full sm:w-72">
-                    <SelectValue placeholder="Choose a session" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {activeSessions.length > 0 && (
-                      <SelectGroup>
-                        <SelectLabel>Active now</SelectLabel>
-                        {activeSessions.map((s) => (
-                          <SelectItem key={s.sessionId} value={s.sessionId.toString()}>
-                            {s.sessionName}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    )}
-                    {pastSessions.length > 0 && (
-                      <SelectGroup>
-                        <SelectLabel>Past sessions</SelectLabel>
-                        {pastSessions.map((s) => (
-                          <SelectItem key={s.sessionId} value={s.sessionId.toString()}>
-                            {s.sessionName} — {formatSessionDate(s.sessionDate)}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    )}
-                  </SelectContent>
-                </Select>
-                {sessionSwitching && <Loader2 className="size-4 shrink-0 animate-spin text-zinc-400" />}
-              </div>
-
-              <LeaderboardView
-                rankings={sessionRankings}
-                variant="session"
-                subtitle={
-                  selectedSession
-                    ? `${selectedSession.sessionName} · ${
-                        selectedSession.status === "Active" ? "In progress" : formatSessionDate(selectedSession.sessionDate)
-                      }`
-                    : undefined
-                }
-                emptyMessage="No results yet for this session — the leaderboard fills in as matches are recorded."
-              />
-            </>
-          )}
-        </TabsContent>
-
-        <TabsContent value="overall">
           <LeaderboardView
-            rankings={overallRankings}
-            variant="overall"
-            subtitle="This week, across every session — resets every Sunday"
-            emptyMessage="No players have recorded matches yet this week."
+            rankings={sessionRankings}
+            subtitle={
+              selectedSession
+                ? `${selectedSession.sessionName} · ${
+                    selectedSession.status === "Active" ? "In progress" : formatSessionDate(selectedSession.sessionDate)
+                  }`
+                : undefined
+            }
+            emptyMessage="No results yet for this session — the leaderboard fills in as matches are recorded."
           />
-        </TabsContent>
-      </Tabs>
+        </>
+      )}
     </AppShell>
   );
 }
 
 function LeaderboardView({
   rankings,
-  variant,
   subtitle,
   emptyMessage,
 }: {
   rankings: LeaderboardPlayerDto[];
-  variant: "session" | "overall";
   subtitle?: string;
   emptyMessage: string;
 }) {
@@ -241,7 +218,7 @@ function LeaderboardView({
   const [first, second, third, ...rest] = rankings;
 
   return (
-    <div className="mt-4">
+    <div>
       {subtitle && <p className="mb-4 text-sm text-zinc-500">{subtitle}</p>}
 
       {first && (
@@ -262,7 +239,6 @@ function LeaderboardView({
             height="h-40 sm:h-56"
             gradient="from-ball to-ball-deep"
             medal="🥇"
-            featured
             onClick={() => setSelectedPlayer(first)}
           />
           {third ? (
@@ -292,10 +268,14 @@ function LeaderboardView({
             <span className="text-right">Wins</span>
             <span className="text-right">Losses</span>
             <span className="text-right">Games</span>
-            <span className="text-right">{variant === "session" ? "Streak" : "Win %"}</span>
+            <span className="text-right">Streak</span>
           </div>
           {rest.map((p) => (
-            <div key={p.playerId} className="py-3">
+            <div
+              key={p.playerId}
+              onClick={() => setSelectedPlayer(p)}
+              className="cursor-pointer py-3 transition-colors hover:bg-zinc-50"
+            >
               <div className="grid grid-cols-[2.5rem_minmax(0,1fr)] items-center gap-3 sm:grid-cols-[3rem_minmax(0,1fr)_4rem_4rem_4rem_4rem_4rem]">
                 <span className="text-sm font-bold text-zinc-400 tabular-nums">#{p.rank}</span>
                 <div className="flex min-w-0 items-center gap-3">
@@ -317,11 +297,7 @@ function LeaderboardView({
                   {p.gamesPlayed}
                 </span>
                 <span className="hidden text-right sm:inline">
-                  {variant === "session" ? (
-                    <StreakBadge streak={p.streak} />
-                  ) : (
-                    <span className="text-xs font-bold tabular-nums">{Number(p.winPercentage).toFixed(0)}%</span>
-                  )}
+                  <StreakBadge streak={p.streak} />
                 </span>
               </div>
 
@@ -332,31 +308,27 @@ function LeaderboardView({
                 <span className="text-brand-dark">W {p.wins}</span>
                 <span>L {p.losses}</span>
                 <span>G {p.gamesPlayed}</span>
-                {variant === "session" ? (
-                  <StreakBadge streak={p.streak} size="text-[11px]" />
-                ) : (
-                  <span>{Number(p.winPercentage).toFixed(0)}%</span>
-                )}
+                <StreakBadge streak={p.streak} size="text-[11px]" />
               </div>
             </div>
           ))}
         </div>
       </Panel>
 
-      <PlayerStatsDialog player={selectedPlayer} variant={variant} onClose={() => setSelectedPlayer(null)} />
+      <PlayerStatsDialog player={selectedPlayer} onClose={() => setSelectedPlayer(null)} />
     </div>
   );
 }
 
 function PlayerStatsDialog({
   player,
-  variant,
   onClose,
 }: {
   player: LeaderboardPlayerDto | null;
-  variant: "session" | "overall";
   onClose: () => void;
 }) {
+  const navigate = useNavigate();
+
   return (
     <Dialog open={player !== null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
@@ -374,17 +346,21 @@ function PlayerStatsDialog({
               <StatBox label="Games Played" value={String(player.gamesPlayed)} />
               <StatBox label="Wins" value={String(player.wins)} accent />
               <StatBox label="Losses" value={String(player.losses)} />
-              {variant === "session" ? (
-                <div className="rounded-2xl bg-zinc-50 p-4 text-center">
-                  <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-zinc-400">Streak</p>
-                  <div className="flex justify-center">
-                    <StreakBadge streak={player.streak} size="text-lg" />
-                  </div>
+              <div className="rounded-2xl bg-zinc-50 p-4 text-center">
+                <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-zinc-400">Streak</p>
+                <div className="flex justify-center">
+                  <StreakBadge streak={player.streak} size="text-lg" />
                 </div>
-              ) : (
-                <StatBox label="Win %" value={`${Number(player.winPercentage).toFixed(0)}%`} accent />
-              )}
+              </div>
             </div>
+
+            <Button
+              onClick={() => navigate(`/players/${player.playerId}`)}
+              variant="outline"
+              className="mt-4 w-full rounded-full"
+            >
+              View Full History
+            </Button>
           </>
         )}
       </DialogContent>
@@ -408,7 +384,6 @@ function Podium({
   height: string;
   gradient: string;
   medal: string;
-  featured?: boolean;
   onClick: () => void;
 }) {
   return (

@@ -1,7 +1,8 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { type ReactNode } from "react";
+import type { ReactNode, ComponentPropsWithoutRef } from "react";
 import { PickleballIcon } from "../components/icons/pickleball-icons";
 import { getStoredOrganizer, logout } from "@/services/auth";
+import { cn } from "@/lib/utils";
 
 const NAV: { label: string; to: string }[] = [
   { label: "Dashboard", to: "/dashboard" },
@@ -157,16 +158,15 @@ export function PageHeader({
 
 export function Panel({
   children,
-  className = "",
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
+  className,
+  ...props
+}: ComponentPropsWithoutRef<"div">) {
   return (
-    <section
-      className={`rounded-[20px] bg-white p-5 ring-1 ring-black/5 sm:p-6 ${className}`}
+    <div
+      className={cn("rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5 sm:p-6", className)}
+      {...props}
     >
       {children}
-    </section>
+    </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Loader2, Shuffle, ArrowLeftRight, History, Trophy, Flame, Snowflake } from "lucide-react";
+import { Loader2, Shuffle, ArrowLeftRight, History, Trophy, Flame, Snowflake, UserRound } from "lucide-react";
 import { AppShell, PageHeader, Panel } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -397,14 +397,29 @@ export default function MatchesPage() {
                     </div>
                     <div className="divide-y divide-zinc-100">
                       {sessionPlayerStats.map((p) => (
-                        <button
+                        <div
                           key={p.playerId}
+                          role="button"
+                          tabIndex={0}
                           onClick={() => handleTogglePlayerFilter(p.playerId)}
-                          className={`flex w-full flex-col gap-2 rounded-lg px-2 py-3 text-left transition-colors sm:grid sm:grid-cols-[minmax(0,1fr)_5rem_4rem_4rem_4rem] sm:items-center sm:gap-3 ${
+                          className={`flex w-full cursor-pointer flex-col gap-2 rounded-lg px-2 py-3 text-left transition-colors sm:grid sm:grid-cols-[minmax(0,1fr)_5rem_4rem_4rem_4rem] sm:items-center sm:gap-3 ${
                             selectedPlayerId === p.playerId ? "bg-brand-soft" : "hover:bg-zinc-50"
                           }`}
                         >
-                          <p className="truncate text-sm font-semibold">{p.fullName}</p>
+                          <div className="flex min-w-0 items-center gap-1.5">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(`/players/${p.playerId}`);
+                              }}
+                              className="grid size-5 shrink-0 place-items-center rounded-full text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700"
+                              aria-label={`View ${p.fullName}'s profile`}
+                              title="View profile"
+                            >
+                              <UserRound className="size-3.5" />
+                            </button>
+                            <p className="truncate text-sm font-semibold">{p.fullName}</p>
+                          </div>
 
                           {/* Below sm: all four stats as compact labeled chips instead of vanishing entirely */}
                           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs sm:hidden">
@@ -427,7 +442,7 @@ export default function MatchesPage() {
                           <span className="hidden text-right sm:inline">
                             <StreakIndicator streak={p.streak} />
                           </span>
-                        </button>
+                        </div>
                       ))}
                     </div>
                   </div>

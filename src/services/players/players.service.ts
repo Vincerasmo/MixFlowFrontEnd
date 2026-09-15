@@ -1,5 +1,5 @@
 import { apiClient } from "../api/client";
-import type { CreatePlayerPayload, PlayerDto, UpdatePlayerPayload } from "./players.types";
+import type { CreatePlayerPayload, PlayerDto, PlayerHistory, UpdatePlayerPayload } from "./players.types";
 
 export async function getAllPlayers(): Promise<PlayerDto[]> {
   const { data } = await apiClient.get<PlayerDto[]>("/players");
@@ -23,4 +23,9 @@ export async function updatePlayer(id: number, payload: UpdatePlayerPayload): Pr
 
 export async function deletePlayer(id: number): Promise<void> {
   await apiClient.delete(`/players/${id}`);
+}
+
+export async function getPlayerHistory(id: number): Promise<PlayerHistory> {
+  const { data } = await apiClient.get<PlayerHistory>(`/players/${id}/history`);
+  return data;
 }

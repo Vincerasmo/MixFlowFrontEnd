@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useNavigate } from "react-router-dom";
 import { Plus, Pencil, Trash2, Search, Loader2, MoreVertical } from "lucide-react";
 import { AppShell, PageHeader, Panel } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
@@ -49,6 +50,7 @@ const TIER_STYLE: Record<string, string> = {
 const emptyForm = { fullName: "", skillCategory: "Novice" as string };
 
 export default function PlayersPage() {
+  const navigate = useNavigate();
   const [players, setPlayers] = useState<PlayerDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -219,20 +221,30 @@ export default function PlayersPage() {
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {filteredPlayers.map((p) => (
-            <Panel key={p.playerId} className="group relative overflow-hidden">
+            <Panel
+              key={p.playerId}
+              onClick={() => navigate(`/players/${p.playerId}`)}
+              className="group relative cursor-pointer overflow-hidden"
+            >
               <div className="absolute -right-6 -top-6 size-24 rounded-full bg-brand-soft transition-transform group-hover:scale-110" />
 
               {/* Desktop / wide screens: hover-to-reveal icons */}
               <div className="absolute right-3 top-3 z-10 hidden gap-1 opacity-0 transition-opacity group-hover:opacity-100 sm:flex">
                 <button
-                  onClick={() => openEditDialog(p)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openEditDialog(p);
+                  }}
                   className="grid size-7 place-items-center rounded-full bg-white text-zinc-500 ring-1 ring-black/5 hover:text-zinc-900"
                   aria-label={`Edit ${p.fullName}`}
                 >
                   <Pencil className="size-3.5" />
                 </button>
                 <button
-                  onClick={() => setDeleteTarget(p)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDeleteTarget(p);
+                  }}
                   className="grid size-7 place-items-center rounded-full bg-white text-zinc-500 ring-1 ring-black/5 hover:text-red-500"
                   aria-label={`Delete ${p.fullName}`}
                 >
@@ -246,6 +258,7 @@ export default function PlayersPage() {
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button
+                      onClick={(e) => e.stopPropagation()}
                       className="grid size-7 place-items-center rounded-full bg-white text-zinc-500 ring-1 ring-black/5"
                       aria-label={`Actions for ${p.fullName}`}
                     >
@@ -253,11 +266,19 @@ export default function PlayersPage() {
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => openEditDialog(p)}>
+                    <DropdownMenuItem
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openEditDialog(p);
+                      }}
+                    >
                       <Pencil className="size-3.5" /> Edit
                     </DropdownMenuItem>
                     <DropdownMenuItem
-                      onClick={() => setDeleteTarget(p)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeleteTarget(p);
+                      }}
                       className="text-red-500 focus:text-red-500"
                     >
                       <Trash2 className="size-3.5" /> Delete

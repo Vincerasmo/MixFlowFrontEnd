@@ -20,11 +20,6 @@ export async function getActiveSessionLeaderboard(): Promise<ActiveSessionLeader
   }
 }
 
-export async function getOverallLeaderboard(): Promise<LeaderboardPlayerDto[]> {
-  const { data } = await apiClient.get<LeaderboardPlayerDto[]>("/leaderboard/overall");
-  return data;
-}
-
 export async function saveSessionLeaderboardSnapshot(sessionId: number): Promise<void> {
   await apiClient.post(`/leaderboard/session/${sessionId}/snapshot`);
 }

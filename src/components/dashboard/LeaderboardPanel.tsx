@@ -2,10 +2,12 @@ import { useEffect, useState } from "react";
 import { Medal, Loader2 } from "lucide-react";
 import PanelCard from "./PanelCard";
 import { cn } from "@/lib/utils";
-import { getOverallLeaderboard } from "@/services/leaderboard";
+import { getSessionLeaderboard } from "@/services/leaderboard";
 import type { LeaderboardPlayerDto } from "@/services/leaderboard";
+import { getMySessions } from "@/services/sessions";
 
 export default function LeaderboardPanel() {
+  const [sessionName, setSessionName] = useState<string | null>(null);
   const [leaders, setLeaders] = useState<LeaderboardPlayerDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -13,9 +15,25 @@ export default function LeaderboardPanel() {
   useEffect(() => {
     let cancelled = false;
 
-    getOverallLeaderboard()
-      .then((data) => {
-        if (!cancelled) setLeaders(data);
+    // The overall/weekly leaderboard was removed — this panel now shows whichever
+    // session most recently ended, since that's the most relevant "recent form"
+    // snapshot available without a cross-session aggregate.
+    getMySessions()
+      .then((sessions) => {
+        const ended = sessions
+          .filter((s) => s.status !== "Active")
+          .sort((a, b) => new Date(b.sessionDate).getTime() - new Date(a.sessionDate).getTime());
+
+        const lastSession = ended[0];
+        if (!lastSession) {
+          if (!cancelled) setSessionName(null);
+          return Promise.resolve();
+        }
+
+        if (!cancelled) setSessionName(lastSession.sessionName);
+        return getSessionLeaderboard(lastSession.sessionId).then((data) => {
+          if (!cancelled) setLeaders(data);
+        });
       })
       .catch(() => {
         if (!cancelled) setError("Couldn't load the leaderboard.");
@@ -33,15 +51,22 @@ export default function LeaderboardPanel() {
     rank === 1 ? "bg-ball" : rank === 2 ? "bg-zinc-300" : rank === 3 ? "bg-amber-600" : "bg-zinc-100 text-zinc-500";
 
   return (
-    <PanelCard title="Top Performers (Weekly)" accent="bg-ball" to="/leaderboard" className="col-span-12">
+    <PanelCard
+      title={sessionName ? `Top Performers — ${sessionName}` : "Top Performers"}
+      accent="bg-ball"
+      to="/leaderboard"
+      className="col-span-12"
+    >
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-zinc-400">
           <Loader2 className="size-4 animate-spin" /> Loading leaderboard…
         </div>
       ) : error ? (
         <p className="text-sm text-red-500">{error}</p>
+      ) : sessionName === null ? (
+        <p className="text-sm text-zinc-400">No completed sessions yet — this fills in once a session ends.</p>
       ) : leaders.length === 0 ? (
-        <p className="text-sm text-zinc-400">No results yet — play a few matches to populate the leaderboard.</p>
+        <p className="text-sm text-zinc-400">No results were recorded in that session.</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[520px] border-collapse text-sm">

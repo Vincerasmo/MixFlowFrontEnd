@@ -10,6 +10,9 @@ import { loginWithGoogle, loginWithEmail, decodeGoogleCredential } from "@/servi
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
 
+// Accounts here are Gmail-based, so anything else won't have a matching account.
+const isValidGmail = (value: string) => /^[^\s@]+@gmail\.com$/i.test(value.trim());
+
 export default function LoginPage() {
   const navigate = useNavigate();
   const buttonRef = useRef<HTMLDivElement>(null);
@@ -84,9 +87,15 @@ export default function LoginPage() {
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    if (!isValidGmail(email)) {
+      setError("Please enter a valid Gmail address (must end in @gmail.com).");
+      return;
+    }
+
     setEmailLoading(true);
     try {
-      await loginWithEmail({ email });
+      await loginWithEmail({ email: email.trim() });
       navigate("/dashboard");
     } catch (err) {
       const apiErr = err as { status?: number; message?: string };
@@ -130,7 +139,7 @@ export default function LoginPage() {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@example.com"
+                  placeholder="you@gmail.com"
                 />
               </div>
               <Button type="submit" disabled={emailLoading} className="w-full">

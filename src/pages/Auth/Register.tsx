@@ -10,6 +10,14 @@ import { signupWithGoogle, signupWithEmail, decodeGoogleCredential } from "@/ser
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
 
+// Accounts here are Gmail-based, so signing up with anything else won't work.
+const isValidGmail = (value: string) => /^[^\s@]+@gmail\.com$/i.test(value.trim());
+
+// Letters and spaces only — allows multi-word names like "Jane Organizer" but
+// rejects digits and punctuation. Apostrophes and hyphens are permitted since
+// they're genuinely common in real names (O'Brien, Smith-Jones).
+const isValidName = (value: string) => /^[A-Za-z][A-Za-z\s'-]*$/.test(value.trim());
+
 export default function SignUpPage() {
   const navigate = useNavigate();
   const buttonRef = useRef<HTMLDivElement>(null);
@@ -85,9 +93,25 @@ export default function SignUpPage() {
   const handleEmailSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    const trimmedName = fullName.trim();
+
+    if (!trimmedName) {
+      setError("Please enter your full name.");
+      return;
+    }
+    if (!isValidName(trimmedName)) {
+      setError("Your name can only contain letters, spaces, hyphens, and apostrophes.");
+      return;
+    }
+    if (!isValidGmail(email)) {
+      setError("Please sign up with a valid Gmail address (must end in @gmail.com).");
+      return;
+    }
+
     setEmailLoading(true);
     try {
-      await signupWithEmail({ fullName, email });
+      await signupWithEmail({ fullName: trimmedName, email: email.trim() });
       navigate("/dashboard");
     } catch (err) {
       const apiErr = err as { status?: number; message?: string };
@@ -142,7 +166,7 @@ export default function SignUpPage() {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@example.com"
+                  placeholder="you@gmail.com"
                 />
               </div>
               <Button type="submit" disabled={emailLoading} className="w-full">

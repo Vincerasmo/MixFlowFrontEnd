@@ -9,6 +9,7 @@ import QueuePage from "./pages/Queue";
 import MatchesPage from "./pages/Matches";
 import LeaderboardPage from "./pages/Leaderboard";
 import WatchPage from "./pages/Watch";
+import ReportPage from "./pages/Report";
 import NotFoundPage from "./pages/NotFound";
 import PlayerDetailPage from "./pages/PlayerDetail";
 
@@ -26,6 +27,8 @@ export default function App() {
       <Route path="/players/:id" element={<PlayerDetailPage />} />
       {/* Public, no-login spectator view — share this link/QR with players */}
       <Route path="/watch/:sessionId" element={<WatchPage />} />
+      {/* Public, no-login post-session wrap-up — MVP, final standings, highlights */}
+      <Route path="/report/:sessionId" element={<ReportPage />} />
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );

@@ -16,6 +16,22 @@ export interface PublicSessionDto {
   endTime: string;
 }
 
+export interface SessionReportDto {
+  sessionId: number;
+  sessionName: string;
+  sessionDate: string;
+  startTime: string;
+  endTime: string;
+  numberOfCourts: number;
+  status: string;
+  totalMatchesPlayed: number;
+  totalDistinctPlayers: number;
+  finalStandings: LeaderboardPlayerDto[];
+  mvp: LeaderboardPlayerDto | null;
+  biggestWin: MatchDto | null;
+  biggestWinMargin: number;
+}
+
 export async function getPublicSession(sessionId: number): Promise<PublicSessionDto> {
   const { data } = await apiClient.get<PublicSessionDto>(`/public/sessions/${sessionId}`);
   return data;
@@ -45,5 +61,13 @@ export async function getPublicCompletedMatches(sessionId: number): Promise<Matc
 
 export async function getPublicLeaderboard(sessionId: number): Promise<LeaderboardPlayerDto[]> {
   const { data } = await apiClient.get<LeaderboardPlayerDto[]>(`/public/sessions/${sessionId}/leaderboard`);
+  return data;
+}
+
+// Post-session wrap-up — MVP, final standings, and a biggest-win highlight, on top
+// of the same match/leaderboard data the live Watch page shows. Meant to be viewed
+// once a session has ended, not polled like the live view.
+export async function getPublicSessionReport(sessionId: number): Promise<SessionReportDto> {
+  const { data } = await apiClient.get<SessionReportDto>(`/public/sessions/${sessionId}/report`);
   return data;
 }

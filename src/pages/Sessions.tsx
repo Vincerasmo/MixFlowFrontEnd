@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { Plus, Loader2, Users, X, Share2, Check, Eye, History, MoreVertical, Square } from "lucide-react";
+import { Plus, Loader2, Users, X, Share2, Check, Eye, History, MoreVertical, Square, Trophy } from "lucide-react";
 import { AppShell, PageHeader, Panel } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,6 +63,7 @@ export default function SessionsPage() {
 
   const [endingId, setEndingId] = useState<number | null>(null);
   const [copiedSessionId, setCopiedSessionId] = useState<number | null>(null);
+  const [copiedReportSessionId, setCopiedReportSessionId] = useState<number | null>(null);
 
   // Roster management
   const [rosterSession, setRosterSession] = useState<SessionDto | null>(null);
@@ -199,6 +200,20 @@ const handleBackToEdit = () => {
       await navigator.clipboard.writeText(url);
       setCopiedSessionId(sessionId);
       setTimeout(() => setCopiedSessionId((current) => (current === sessionId ? null : current)), 2000);
+    } catch {
+      setError("Couldn't copy the link. Please try again.");
+    }
+  };
+
+  // Copies a public, no-login link to the post-session wrap-up (MVP, final
+  // standings, highlights) — the richer, celebratory summary shown once a session
+  // has ended, distinct from the live Watch page.
+  const handleCopyReportLink = async (sessionId: number) => {
+    const url = `${window.location.origin}/report/${sessionId}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedReportSessionId(sessionId);
+      setTimeout(() => setCopiedReportSessionId((current) => (current === sessionId ? null : current)), 2000);
     } catch {
       setError("Couldn't copy the link. Please try again.");
     }
@@ -383,6 +398,24 @@ const formatDateLabel = (yyyyMmDd: string) => {
                         </Link>
                       </Button>
                     )}
+                    {!isLive && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleCopyReportLink(s.sessionId)}
+                        className="rounded-full"
+                      >
+                        {copiedReportSessionId === s.sessionId ? (
+                          <>
+                            <Check className="size-3.5" /> Copied
+                          </>
+                        ) : (
+                          <>
+                            <Trophy className="size-3.5" /> Report Link
+                          </>
+                        )}
+                      </Button>
+                    )}
                     {isLive && (
                       <Button
                         size="sm"
@@ -444,6 +477,12 @@ const formatDateLabel = (yyyyMmDd: string) => {
                         {isLive && (
                           <DropdownMenuItem onClick={() => handleCopyWatchLink(s.sessionId)}>
                             <Share2 className="size-3.5" /> {copiedSessionId === s.sessionId ? "Copied" : "Watch Link"}
+                          </DropdownMenuItem>
+                        )}
+                        {!isLive && (
+                          <DropdownMenuItem onClick={() => handleCopyReportLink(s.sessionId)}>
+                            <Trophy className="size-3.5" />{" "}
+                            {copiedReportSessionId === s.sessionId ? "Copied" : "Report Link"}
                           </DropdownMenuItem>
                         )}
                         {isLive && (

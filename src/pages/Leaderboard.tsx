@@ -48,7 +48,12 @@ function StreakBadge({ streak, size = "text-xs" }: { streak: number; size?: stri
 }
 
 function formatSessionDate(iso: string) {
-  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  const [year, month, day] = iso.slice(0, 10).split("-").map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
 export default function LeaderboardPage() {

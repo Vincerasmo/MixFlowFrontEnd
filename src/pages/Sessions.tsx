@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { Plus, Loader2, Users, X, Share2, Check, Eye, History, MoreVertical, Square, Trophy } from "lucide-react";
+import { Plus, Loader2, Users, X, Share2, Check, Eye, History, MoreVertical, Square } from "lucide-react";
 import { AppShell, PageHeader, Panel } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,7 +63,6 @@ export default function SessionsPage() {
 
   const [endingId, setEndingId] = useState<number | null>(null);
   const [copiedSessionId, setCopiedSessionId] = useState<number | null>(null);
-  const [copiedReportSessionId, setCopiedReportSessionId] = useState<number | null>(null);
 
   // Roster management
   const [rosterSession, setRosterSession] = useState<SessionDto | null>(null);
@@ -127,8 +126,10 @@ const validateSessionForm = (values: typeof emptyForm): string | null => {
   if (!values.startTime || !values.endTime) {
     return "Set both a start time and an end time.";
   }
-  if (values.startTime >= values.endTime) {
-    return "End time must be after start time.";
+  // endTime < startTime is allowed and means the session crosses midnight
+  // (8:00 PM → 12:00 AM next day). Only a zero-length session is invalid.
+  if (values.startTime === values.endTime) {
+    return "Start and end time can't be the same.";
   }
   if (!Number.isInteger(values.numberOfCourts) || values.numberOfCourts < 1) {
     return "Number of courts must be at least 1.";
@@ -205,20 +206,6 @@ const handleBackToEdit = () => {
     }
   };
 
-  // Copies a public, no-login link to the post-session wrap-up (MVP, final
-  // standings, highlights) — the richer, celebratory summary shown once a session
-  // has ended, distinct from the live Watch page.
-  const handleCopyReportLink = async (sessionId: number) => {
-    const url = `${window.location.origin}/report/${sessionId}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopiedReportSessionId(sessionId);
-      setTimeout(() => setCopiedReportSessionId((current) => (current === sessionId ? null : current)), 2000);
-    } catch {
-      setError("Couldn't copy the link. Please try again.");
-    }
-  };
-
   const openRoster = async (session: SessionDto) => {
     setRosterSession(session);
     setRosterError(null);
@@ -286,7 +273,8 @@ const handleBackToEdit = () => {
   };
 
   const formatDate = (iso: string) => {
-    const d = new Date(iso);
+    const [year, month, day] = iso.slice(0, 10).split("-").map(Number);
+    const d = new Date(year, month - 1, day);
     return {
       month: d.toLocaleDateString(undefined, { month: "short" }),
       day: d.getDate(),
@@ -298,6 +286,13 @@ const handleBackToEdit = () => {
   const period = h >= 12 ? "PM" : "AM";
   const hour12 = h % 12 === 0 ? 12 : h % 12;
   return `${hour12}:${String(m).padStart(2, "0")} ${period}`;
+};
+
+const formatTimeRange = (startHHMM: string, endHHMM: string): string => {
+  const start = formatTimeLabel(startHHMM);
+  const end = formatTimeLabel(endHHMM);
+  const crossesMidnight = endHHMM <= startHHMM;
+  return crossesMidnight ? `${start}–${end} (next day)` : `${start}–${end}`;
 };
 
 const formatDateLabel = (yyyyMmDd: string) => {
@@ -371,7 +366,7 @@ const formatDateLabel = (yyyyMmDd: string) => {
                         )}
                       </div>
                       <p className="mt-0.5 text-xs text-zinc-500">
-                        {formatTimeLabel(s.startTime.slice(0, 5))}–{formatTimeLabel(s.endTime.slice(0, 5))} • {s.numberOfCourts} courts • {s.totalMatchesPlayed} game
+                        {formatTimeRange(s.startTime.slice(0, 5), s.endTime.slice(0, 5))} • {s.numberOfCourts} courts • {s.totalMatchesPlayed} game
                         {s.totalMatchesPlayed === 1 ? "" : "s"} played
                       </p>
                     </div>
@@ -393,27 +388,9 @@ const formatDateLabel = (yyyyMmDd: string) => {
                     )}
                     {!isLive && (
                       <Button size="sm" variant="outline" asChild className="rounded-full">
-                        <Link to={`/matches?sessionId=${s.sessionId}`}>
-                          <History className="size-3.5" /> View Results
+                        <Link to={`/report/${s.sessionId}`}>
+                          <History className="size-3.5" /> View Report
                         </Link>
-                      </Button>
-                    )}
-                    {!isLive && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleCopyReportLink(s.sessionId)}
-                        className="rounded-full"
-                      >
-                        {copiedReportSessionId === s.sessionId ? (
-                          <>
-                            <Check className="size-3.5" /> Copied
-                          </>
-                        ) : (
-                          <>
-                            <Trophy className="size-3.5" /> Report Link
-                          </>
-                        )}
                       </Button>
                     )}
                     {isLive && (
@@ -469,20 +446,14 @@ const formatDateLabel = (yyyyMmDd: string) => {
                           </DropdownMenuItem>
                         ) : (
                           <DropdownMenuItem asChild>
-                            <Link to={`/matches?sessionId=${s.sessionId}`}>
-                              <History className="size-3.5" /> View Results
+                            <Link to={`/report/${s.sessionId}`}>
+                              <History className="size-3.5" /> View Report
                             </Link>
                           </DropdownMenuItem>
                         )}
                         {isLive && (
                           <DropdownMenuItem onClick={() => handleCopyWatchLink(s.sessionId)}>
                             <Share2 className="size-3.5" /> {copiedSessionId === s.sessionId ? "Copied" : "Watch Link"}
-                          </DropdownMenuItem>
-                        )}
-                        {!isLive && (
-                          <DropdownMenuItem onClick={() => handleCopyReportLink(s.sessionId)}>
-                            <Trophy className="size-3.5" />{" "}
-                            {copiedReportSessionId === s.sessionId ? "Copied" : "Report Link"}
                           </DropdownMenuItem>
                         )}
                         {isLive && (
@@ -599,7 +570,7 @@ const formatDateLabel = (yyyyMmDd: string) => {
                 <ReviewRow label="Date" value={formatDateLabel(form.sessionDate)} />
                 <ReviewRow
                   label="Time"
-                  value={`${formatTimeLabel(form.startTime)} – ${formatTimeLabel(form.endTime)}`}
+                  value={formatTimeRange(form.startTime, form.endTime)}
                 />
                 <ReviewRow label="Courts" value={String(form.numberOfCourts)} />
               </div>

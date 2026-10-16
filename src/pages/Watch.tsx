@@ -28,6 +28,13 @@ function formatTimeLabel(hhmm: string) {
   return `${hour12}:${String(m).padStart(2, "0")} ${period}`;
 }
 
+function formatTimeRange(startHHMM: string, endHHMM: string): string {
+  const start = formatTimeLabel(startHHMM);
+  const end = formatTimeLabel(endHHMM);
+  const crossesMidnight = endHHMM <= startHHMM;
+  return crossesMidnight ? `${start}–${end} (next day)` : `${start}–${end}`;
+}
+
 // Identical to the dashboard's Top Performers panel, so rank styling is consistent
 // everywhere a leaderboard shows up.
 const medalTone = (rank: number) =>
@@ -147,7 +154,7 @@ export default function WatchPage() {
             <p className="truncate text-base font-bold">{session.sessionName}</p>
             <p className="text-xs text-zinc-500">
               {session.status === "Active" ? "Live now" : "Session ended"} •{" "}
-              {formatTimeLabel(session.startTime.slice(0, 5))}–{formatTimeLabel(session.endTime.slice(0, 5))} •{" "}
+              {formatTimeRange(session.startTime.slice(0, 5), session.endTime.slice(0, 5))} •{" "}{session.numberOfCourts} courts
               {session.numberOfCourts} courts
             </p>
           </div>

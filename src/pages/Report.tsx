@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
-import { Loader2, Medal, Trophy, Flame, Snowflake, Sparkles, Swords } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import { Loader2, Medal, Trophy, Flame, Snowflake, Sparkles, Swords, Share2, Check, ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PickleballIcon } from "@/components/icons/pickleball-icons";
 import { getPublicSessionReport, getPublicCompletedMatches } from "@/services/public";
+import { isAuthenticated } from "@/services/auth";
 import type { SessionReportDto } from "@/services/public";
 import type { MatchDto } from "@/services/matches";
 
@@ -16,6 +17,13 @@ function formatTimeLabel(hhmm: string) {
   const period = h >= 12 ? "PM" : "AM";
   const hour12 = h % 12 === 0 ? 12 : h % 12;
   return `${hour12}:${String(m).padStart(2, "0")} ${period}`;
+}
+
+function formatTimeRange(startHHMM: string, endHHMM: string): string {
+  const start = formatTimeLabel(startHHMM);
+  const end = formatTimeLabel(endHHMM);
+  const crossesMidnight = endHHMM <= startHHMM;
+  return crossesMidnight ? `${start}–${end} (next day)` : `${start}–${end}`;
 }
 
 function formatDateLabel(yyyyMmDd: string) {
@@ -60,6 +68,8 @@ export default function ReportPage() {
   const [matches, setMatches] = useState<MatchDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedPlayerId, setSelectedPlayerId] = useState<number | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   useEffect(() => {
     if (!id || Number.isNaN(id)) {
@@ -92,6 +102,28 @@ export default function ReportPage() {
     };
   }, [id]);
 
+  // Same behavior as the organizer's Matches page: tap a player in the standings to
+  // narrow the match list to only their matches, tap again (or "Show all") to clear.
+  const displayedMatches = useMemo(() => {
+    if (!selectedPlayerId) return matches;
+    return matches.filter((m) => [...m.team1, ...m.team2].some((p) => p.playerId === selectedPlayerId));
+  }, [matches, selectedPlayerId]);
+
+  const handleTogglePlayerFilter = (playerId: number) => {
+    setSelectedPlayerId((current) => (current === playerId ? null : playerId));
+  };
+
+  // The shareable link lives here now rather than on the Sessions list.
+  const handleCopyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/report/${id}`);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      // Clipboard can be blocked (e.g. non-secure context) — nothing useful to show on a public page.
+    }
+  };
+
   if (loading) {
     return (
       <div className="grid min-h-screen place-items-center bg-zinc-50">
@@ -114,19 +146,48 @@ export default function ReportPage() {
   }
 
   const { mvp, biggestWin, biggestWinMargin, finalStandings } = report;
+  const selectedPlayerName = selectedPlayerId
+    ? finalStandings.find((p) => p.playerId === selectedPlayerId)?.fullName
+    : null;
 
   return (
     <div className="min-h-screen bg-zinc-50 pb-16 font-sans text-zinc-900">
       <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/90 px-4 py-3 backdrop-blur-md sm:px-6">
         <div className="mx-auto flex max-w-5xl items-center gap-3">
-          <PickleballIcon className="size-8" />
-          <div className="min-w-0">
+          {/* Only meaningful for the organizer — public viewers arriving from a shared
+              link have no app to go back to. */}
+          {isAuthenticated() && (
+            <Link
+              to="/sessions"
+              aria-label="Back to sessions"
+              title="Back to sessions"
+              className="grid size-8 shrink-0 place-items-center rounded-full text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
+            >
+              <ArrowLeft className="size-4" />
+            </Link>
+          )}
+          <PickleballIcon className="size-8 shrink-0" />
+          <div className="min-w-0 flex-1">
             <p className="truncate text-base font-bold">{report.sessionName}</p>
             <p className="text-xs text-zinc-500">
               Session Wrap-Up • {formatDateLabel(report.sessionDate)} •{" "}
-              {formatTimeLabel(report.startTime.slice(0, 5))}–{formatTimeLabel(report.endTime.slice(0, 5))}
+              {formatTimeRange(report.startTime.slice(0, 5), report.endTime.slice(0, 5))}
             </p>
           </div>
+          <button
+            onClick={handleCopyLink}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+          >
+            {linkCopied ? (
+              <>
+                <Check className="size-3.5" /> Copied
+              </>
+            ) : (
+              <>
+                <Share2 className="size-3.5" /> Copy Link
+              </>
+            )}
+          </button>
         </div>
       </header>
 
@@ -174,7 +235,7 @@ export default function ReportPage() {
                 Won by {biggestWinMargin} point{biggestWinMargin === 1 ? "" : "s"}
                 {biggestWin.courtNumber != null ? ` • Court ${biggestWin.courtNumber}` : ""}
               </p>
-              <div className="grid grid-cols-[1fr_56px_1fr] overflow-hidden rounded-xl border-[4px] border-white">
+              <div className="grid grid-cols-[1fr_auto_1fr] overflow-hidden rounded-xl border-[4px] border-white">
                 <div className="grid grid-rows-2 divide-y-[3px] divide-white bg-[#4a7a9c]">
                   {biggestWin.team1.map((p) => (
                     <div key={p.playerId} className="flex items-center justify-center p-2">
@@ -182,9 +243,8 @@ export default function ReportPage() {
                     </div>
                   ))}
                 </div>
-                <div className="relative flex flex-col justify-center bg-[#5ec2dd] text-center">
-                  <div className="absolute inset-y-0 left-1/2 w-[2px] -translate-x-1/2 bg-zinc-900" />
-                  <p className="relative z-10 text-xs font-black">
+                <div className="flex min-w-[92px] items-center justify-center bg-[#5ec2dd] px-3 sm:min-w-[140px] sm:px-5">
+                  <p className="text-4xl leading-none font-black tabular-nums text-zinc-900 sm:text-2xl">
                     {biggestWin.team1Score}–{biggestWin.team2Score}
                   </p>
                 </div>
@@ -202,13 +262,29 @@ export default function ReportPage() {
 
         {/* Final standings */}
         <section className="mb-8 rounded-[20px] bg-white p-5 ring-1 ring-black/5">
-          <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">Final Standings</h2>
+          <div className="mb-3 flex items-baseline justify-between gap-2">
+            <h2 className="text-sm font-bold uppercase tracking-wider text-zinc-500">Final Standings</h2>
+            {finalStandings.length > 0 && (
+              <p className="text-xs text-zinc-400">
+                {selectedPlayerName ? `Showing ${selectedPlayerName}'s matches below ↓` : "Tap a player to see only their matches"}
+              </p>
+            )}
+          </div>
           {finalStandings.length === 0 ? (
             <p className="text-sm text-zinc-400">No results were recorded in this session.</p>
           ) : (
             <div className="divide-y divide-zinc-100">
               {finalStandings.map((l) => (
-                <div key={l.playerId} className="flex items-center justify-between py-2.5">
+                <button
+                  key={l.playerId}
+                  type="button"
+                  onClick={() => handleTogglePlayerFilter(l.playerId)}
+                  aria-pressed={selectedPlayerId === l.playerId}
+                  className={cn(
+                    "flex w-full cursor-pointer items-center justify-between rounded-lg px-2 py-2.5 text-left transition-colors",
+                    selectedPlayerId === l.playerId ? "bg-brand-soft" : "hover:bg-zinc-50",
+                  )}
+                >
                   <div className="flex min-w-0 items-center gap-3">
                     <span
                       className={cn(
@@ -229,7 +305,7 @@ export default function ReportPage() {
                     </span>
                     <StreakIndicator streak={l.streak} />
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           )}
@@ -237,12 +313,29 @@ export default function ReportPage() {
 
         {/* Full match list — same fraction-bar card treatment as Watch.tsx's Final Results */}
         <section className="rounded-[20px] bg-white p-5 ring-1 ring-black/5">
-          <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-500">All Matches</h2>
-          {matches.length === 0 ? (
-            <p className="text-sm text-zinc-400">No matches were recorded in this session.</p>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h2 className="text-sm font-bold uppercase tracking-wider text-zinc-500">
+              All Matches
+              {selectedPlayerName && <span className="font-medium normal-case tracking-normal text-zinc-400"> — {selectedPlayerName}</span>}
+            </h2>
+            {selectedPlayerId && (
+              <button
+                onClick={() => setSelectedPlayerId(null)}
+                className="shrink-0 text-xs font-semibold text-brand-dark underline underline-offset-2"
+              >
+                Show all
+              </button>
+            )}
+          </div>
+          {displayedMatches.length === 0 ? (
+            <p className="text-sm text-zinc-400">
+              {selectedPlayerId
+                ? `${selectedPlayerName} hasn't played a recorded match this session.`
+                : "No matches were recorded in this session."}
+            </p>
           ) : (
             <div className="space-y-2">
-              {matches.map((m) => {
+              {displayedMatches.map((m) => {
                 const t1Score = m.team1Score ?? 0;
                 const t2Score = m.team2Score ?? 0;
                 const t1Won = t1Score > t2Score;

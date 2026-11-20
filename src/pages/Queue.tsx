@@ -23,6 +23,7 @@ import {
   swapMatchTeams,
   swapMatchWithQueue,
 } from "@/services/matches";
+import { formatElapsedDuration, loadFirstSeenMap, saveFirstSeenMap } from "@/lib/utils";
 import type { SessionDto, SessionPlayerDto } from "@/services/sessions";
 import type { QueueEntryDto, MatchDto } from "@/services/matches";
 
@@ -42,6 +43,16 @@ export default function QueuePage() {
 
   const [pendingPlayerId, setPendingPlayerId] = useState<number | null>(null);
   const [autoMixing, setAutoMixing] = useState(false);
+
+  // Ticks every 30s so the queue wait timers advance without re-fetching.
+  const [clockNow, setClockNow] = useState(() => Date.now());
+
+  // When each queue entry (keyed by queueId) first appeared in the queue. Because
+  // a player who leaves for a match and comes back gets a NEW queueId, this
+  // naturally gives "timer resets when the player re-enters the queue" — which is
+  // exactly the behavior we want after a match ends. Persisted to localStorage so
+  // a page refresh doesn't wipe every wait timer.
+  const [queueFirstSeen, setQueueFirstSeen] = useState<Map<number, number>>(new Map());
 
   // Pair-picker dialog: tap up to two players to highlight/select them (from any of
   // the 4 categories), then tap the confirm button to actually lock them together.
@@ -101,6 +112,38 @@ export default function QueuePage() {
   useEffect(() => {
     if (selectedSessionId !== null) void loadSessionData(selectedSessionId);
   }, [selectedSessionId]);
+
+  // 30s clock tick — drives the "Waiting Xm" text on each queue row.
+  useEffect(() => {
+    const interval = setInterval(() => setClockNow(Date.now()), 30_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Sync the first-seen map with the current queue:
+  // - Load existing timestamps from localStorage (survives refresh)
+  // - Add a fresh timestamp for any queueId we've never seen before
+  //   (a player who just got queued, or one returning from a match — both
+  //   get a brand-new queueId, so this is the reset behavior in one line)
+  // - Entries for queueIds no longer in the queue stay in localStorage
+  //   harmlessly; they're pruned by age on the next load.
+  useEffect(() => {
+    if (selectedSessionId === null) return;
+
+    const key = `mixflow.queueFirstSeen.${selectedSessionId}`;
+    const stored = loadFirstSeenMap(key);
+    const now = Date.now();
+    let changed = false;
+
+    for (const q of queue) {
+      if (!stored.has(q.queueId)) {
+        stored.set(q.queueId, now);
+        changed = true;
+      }
+    }
+
+    if (changed) saveFirstSeenMap(key, stored);
+    setQueueFirstSeen(stored);
+  }, [queue, selectedSessionId]);
 
   const benched = useMemo(() => sessionPlayers.filter((sp) => sp.status === "Benched"), [sessionPlayers]);
 
@@ -629,6 +672,7 @@ export default function QueuePage() {
               <div className="max-h-96 divide-y divide-zinc-100 overflow-y-auto">
                 {queue.map((q, i) => {
                   const alreadyLocked = lockedPartnerByPlayerId.has(q.playerId);
+                  const waitStartedAt = queueFirstSeen.get(q.queueId) ?? clockNow;
 
                   return (
                     <div
@@ -642,6 +686,7 @@ export default function QueuePage() {
                         <p className="truncate text-sm font-semibold">{q.fullName}</p>
                         <p className="text-xs text-zinc-400">
                           {q.skillCategory} • Rating {Number(q.skillLevel).toFixed(1)}
+                          {" • "}Waiting {formatElapsedDuration(waitStartedAt, clockNow)}
                           {alreadyLocked ? ` • 🔒 with ${lockedPartnerByPlayerId.get(q.playerId)}` : ""}
                         </p>
                       </div>

@@ -20,10 +20,11 @@ import {
   getCompletedMatches,
   recordMatchResult,
   smartMixCourt,
-  swapMatchTeams,
+  swapActiveMatchTeams, // <-- Changed import
   getQueue,
   getNextUpMatches,
 } from "@/services/matches";
+import { formatElapsedDuration, loadFirstSeenMap, saveFirstSeenMap } from "@/lib/utils";
 import type { SessionDto } from "@/services/sessions";
 import type { MatchDto, QueueEntryDto } from "@/services/matches";
 import type { LeaderboardPlayerDto } from "@/services/leaderboard";
@@ -66,6 +67,15 @@ export default function MatchesPage() {
 
   // Filtering the results list to one player, via clicking their row in "All Players"
   const [selectedPlayerId, setSelectedPlayerId] = useState<number | null>(null);
+
+  // Drives the per-match "on court" timers. Refreshes every 30s so the display
+  // advances without a re-fetch.
+  const [clockNow, setClockNow] = useState(() => Date.now());
+
+  // When each match (keyed by matchId) first appeared in activeMatches — i.e. when
+  // it became active on court. Persisted to localStorage so a page refresh doesn't
+  // wipe every on-court timer.
+  const [matchFirstSeen, setMatchFirstSeen] = useState<Map<number, number>>(new Map());
 
   const isLive = session?.status === "Active";
 
@@ -133,6 +143,37 @@ export default function MatchesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
+  // Tick every 30s so the on-court timers advance between data fetches.
+  useEffect(() => {
+    const interval = setInterval(() => setClockNow(Date.now()), 30_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Sync the first-seen map with the current active matches:
+  // - Load existing timestamps from localStorage (survives refresh)
+  // - Add a fresh timestamp for any matchId we've never seen before
+  //   (a match becomes active → its matchId appears here for the first time)
+  // - Entries for matches that have completed stay in localStorage harmlessly;
+  //   they're pruned by age on the next load.
+  useEffect(() => {
+    if (!session) return;
+
+    const key = `mixflow.matchFirstSeen.${session.sessionId}`;
+    const stored = loadFirstSeenMap(key);
+    const now = Date.now();
+    let changed = false;
+
+    for (const m of activeMatches) {
+      if (!stored.has(m.matchId)) {
+        stored.set(m.matchId, now);
+        changed = true;
+      }
+    }
+
+    if (changed) saveFirstSeenMap(key, stored);
+    setMatchFirstSeen(stored);
+  }, [activeMatches, session]);
+
   const handleAutoMix = async (courtNumber: number) => {
     if (!session) return;
     setBusyCourt(courtNumber);
@@ -185,7 +226,8 @@ export default function MatchesPage() {
     setSwapBusy(true);
     setSwapError(null);
     try {
-      const updated = await swapMatchTeams(session.sessionId, swappingMatch.matchId, selectedForSwap, playerId);
+      // Swapping players on a live/active match
+      const updated = await swapActiveMatchTeams(session.sessionId, swappingMatch.matchId, selectedForSwap, playerId);
       setSwappingMatch(updated);
       setActiveMatches((prev) => prev.map((m) => (m.matchId === updated.matchId ? updated : m)));
       setSelectedForSwap(null);
@@ -290,8 +332,15 @@ export default function MatchesPage() {
                           >
                             <ArrowLeftRight className="size-3.5" />
                           </button>
-                          <span className="pulse-dot rounded-full bg-red-500 px-2 py-0.5 text-[9px] font-bold uppercase text-white">
-                            Live
+                          <span className="flex items-center gap-1 rounded-full bg-red-500 px-2 py-0.5 text-[9px] font-bold uppercase text-white">
+                            <span className="pulse-dot">Live</span>
+                            <span className="opacity-60">·</span>
+                            <span className="tabular-nums">
+                              {formatElapsedDuration(
+                                matchFirstSeen.get(match.matchId) ?? clockNow,
+                                clockNow,
+                              )}
+                            </span>
                           </span>
                         </div>
                       </div>

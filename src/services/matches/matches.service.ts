@@ -72,6 +72,7 @@ export async function getNextUpMatches(sessionId: number): Promise<MatchDto[]> {
   return data;
 }
 
+// Swaps players on a match that is still in the "Next Up" queue.
 export async function swapMatchTeams(
   sessionId: number,
   matchId: number,
@@ -80,6 +81,23 @@ export async function swapMatchTeams(
 ): Promise<MatchDto> {
   const { data } = await apiClient.put<MatchDto>(
     `/matches/next-up/${matchId}/swap-teams`,
+    { playerAId, playerBId },
+    { params: { sessionId } }
+  );
+  return data;
+}
+
+// Swaps players on an ACTIVE match that is currently being played on a court.
+// This hits a different endpoint than swapMatchTeams, because the match is no
+// longer in the "Next Up" queue.
+export async function swapActiveMatchTeams(
+  sessionId: number,
+  matchId: number,
+  playerAId: number,
+  playerBId: number
+): Promise<MatchDto> {
+  const { data } = await apiClient.put<MatchDto>(
+    `/matches/active/${matchId}/swap-teams`,
     { playerAId, playerBId },
     { params: { sessionId } }
   );
